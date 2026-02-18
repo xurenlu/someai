@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import warnings
 from pathlib import Path
 
 import httpx
 
 from .config import MODELS_DIR, MODELS_JSON
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_BASE = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODELS: list[str] = (
@@ -49,12 +53,23 @@ def _generate_transformers(prompt: str, temperature: float, max_tokens: int) -> 
         )
 
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        trust_remote_code=True,
-        device_map="cpu",
-        low_cpu_mem_usage=True,
-    )
+    # Qwen2 等模型 tie_word_embeddings=true 时，safetensors 只存 embed_tokens，lm_head 会共享
+    # 抑制 "lm_head.weight not initialized" 警告（属预期行为，不影响推理）
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Some weights of .* were not initialized",
+            category=UserWarning,
+            module="transformers",
+        )
+        # low_cpu_mem_usage=True 会使用 meta 设备初始化，在 CPU 上会导致 "Cannot copy out of meta tensor"
+        # 纯 CPU 推理时需设为 False
+        model = AutoModelForCausalLM.from_pretrained(
+            str(model_path),
+            trust_remote_code=True,
+            device_map="cpu",
+            low_cpu_mem_usage=False,
+        )
 
     # Use chat template for instruct models (Qwen, etc.)
     messages = [{"role": "user", "content": prompt}]
