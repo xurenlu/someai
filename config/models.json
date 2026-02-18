@@ -1,0 +1,61 @@
+{
+  "models": [
+    {
+      "id": "qwen2.5-1.5b-instruct",
+      "name": "Qwen2.5-1.5B-Instruct",
+      "type": "llm",
+      "family": "qwen",
+      "capabilities": ["chat", "completion"],
+      "context_length": 8192,
+      "languages": ["zh", "en"],
+      "default_params": {
+        "temperature": 0.7,
+        "max_tokens": 512
+      },
+      "size_bytes": 2147483648,
+      "quantization": "q4_k_m",
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "qwen3-tts-12hz-0.6b",
+      "name": "Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "type": "tts",
+      "family": "qwen",
+      "capabilities": ["tts"],
+      "languages": ["zh", "en"],
+      "default_params": {
+        "language": "zh",
+        "speaker": "default"
+      },
+      "size_bytes": 6442450944,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "whisper-small",
+      "name": "Whisper Small",
+      "type": "stt",
+      "family": "whisper",
+      "capabilities": ["stt"],
+      "languages": ["zh", "en", "multilingual"],
+      "size_bytes": 1073741824,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "sd-1.5",
+      "name": "Stable Diffusion 1.5",
+      "type": "image",
+      "family": "sd",
+      "capabilities": ["image_generate"],
+      "default_params": {
+        "width": 512,
+        "height": 512
+      },
+      "size_bytes": 4294967296,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    }
+  ]
+}

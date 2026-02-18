@@ -1,0 +1,13 @@
+[project]
+name = "macaistudio-engine"
+version = "1.0.0-rc5"
+description = "MacAIStudio Local AI Engine - FastAPI server"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0,<0.120",
+    "uvicorn[standard]>=0.32.0,<0.35",
+    "python-multipart>=0.0.9",
+]
+
+[tool.uv]
+dev-dependencies = []

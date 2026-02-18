@@ -2,31 +2,19 @@
 //  someaiApp.swift
 //  someai
 //
-//  Created by rocky on 2026/2/18.
+//  MacAIStudio - 本地 AI 工作站
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct someaiApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var engineManager = EngineManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(engineManager)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
