@@ -55,7 +55,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationSplitViewColumnWidth(min: 80, ideal: 96)  // 约4个汉字宽度
         } detail: {
             Group {
                 switch selectedItem {

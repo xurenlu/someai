@@ -50,7 +50,7 @@ struct ChatView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.vertical, 4)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 8))
                 }
             }
             .listStyle(.plain)
@@ -85,7 +85,7 @@ struct ChatView: View {
         let maxInputHeight = max(120, containerHeight * 0.5)
         let maxLineCount = max(6, Int(maxInputHeight / 24))
 
-        return HStack(spacing: 8) {
+        return HStack(alignment: .top, spacing: 8) {
             Picker("chat.model", selection: $selectedModelId) {
                 ForEach(llmModels, id: \.id) { m in
                     Text(m.name).tag(m.id)
@@ -96,8 +96,8 @@ struct ChatView: View {
 
             TextField("chat.input_placeholder", text: $inputText, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
-                .lineLimit(1...maxLineCount)
-                .frame(minHeight: 44, maxHeight: maxInputHeight, alignment: .topLeading)
+                .lineLimit(3...maxLineCount)
+                .frame(minWidth: 240, minHeight: 72, maxHeight: maxInputHeight, alignment: .topLeading)
                 .onKeyPress { press in
                     guard press.key == .return else { return .ignored }
                     if press.modifiers.contains(EventModifiers.shift) {
@@ -115,7 +115,9 @@ struct ChatView: View {
             }
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isGenerating)
         }
-        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 0)
+        .padding(.trailing, 12)
         .padding(.vertical, 10)
     }
 
@@ -151,17 +153,46 @@ struct ChatView: View {
         historyStore.append(record)
 
         let start = Date()
+        let loadingKey = String(localized: "chat.model_loading")
+        let loadedKey = String(localized: "chat.model_loaded")
+
         Task {
             do {
+                // 1. 检查模型是否已加载
+                let loadedResp = try await EngineClient.fetchLoadedModels()
+                let isLoaded = loadedResp.loaded_models.contains { $0.id == selectedModelId }
+
+                if !isLoaded {
+                    // 2. 显示正在加载
+                    await MainActor.run {
+                        messages.append((role: "assistant", text: loadingKey))
+                    }
+                    // 3. 触发加载
+                    try await EngineClient.preloadModel(modelId: selectedModelId)
+                    // 4. 更新为加载完成
+                    await MainActor.run {
+                        if let idx = messages.lastIndex(where: { $0.role == "assistant" && $0.text == loadingKey }) {
+                            messages[idx] = (role: "assistant", text: loadedKey)
+                        }
+                    }
+                }
+
+                // 5. 自动发送聊天内容（无论是否刚加载）
                 let result = try await EngineClient.generateChat(prompt: text, temperature: 0.7, maxTokens: 512, modelId: selectedModelId)
                 let durationMs = Int(Date().timeIntervalSince(start) * 1000)
                 await MainActor.run {
-                    messages.append((role: "assistant", text: result))
+                    // 若有加载状态消息则替换为实际回复，否则追加
+                    if let idx = messages.lastIndex(where: { $0.role == "assistant" && ($0.text == loadingKey || $0.text == loadedKey) }) {
+                        messages[idx] = (role: "assistant", text: result)
+                    } else {
+                        messages.append((role: "assistant", text: result))
+                    }
                     historyStore.update(id: record.id, status: .success, resultRef: .init(text: result), durationMs: durationMs)
                     isGenerating = false
                 }
             } catch {
                 await MainActor.run {
+                    messages.removeAll { $0.role == "assistant" && ($0.text == loadingKey || $0.text == loadedKey) }
                     messages.append((role: "assistant", text: "Error: \(error.localizedDescription)"))
                     historyStore.update(id: record.id, status: .failed, errorMessage: error.localizedDescription)
                     isGenerating = false

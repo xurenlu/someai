@@ -29,8 +29,10 @@ struct ChatHistoryView: View {
                     ForEach(conversations) { conv in
                         ChatHistoryRow(conversation: conv)
                             .tag(conv)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 8))
                     }
                 }
+                .listStyle(.plain)
             }
         }
         .navigationTitle(String(localized: "chat_hub.history"))
@@ -100,8 +102,10 @@ private struct ConversationDetailSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 8))
                 }
             }
+            .listStyle(.plain)
             .navigationTitle(String(localized: "chat_hub.history"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

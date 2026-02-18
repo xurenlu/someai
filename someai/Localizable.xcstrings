@@ -171,6 +171,38 @@
         }
       }
     },
+    "chat.model_loading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading model..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载模型..."
+          }
+        }
+      }
+    },
+    "chat.model_loaded" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model loaded. Sending message..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型已加载完成，正在发送..."
+          }
+        }
+      }
+    },
     "chat.placeholder.desc" : {
       "localizations" : {
         "en" : {
