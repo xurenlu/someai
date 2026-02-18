@@ -1,7 +1,7 @@
 """Engine configuration and version."""
 from pathlib import Path
 
-APP_VERSION = "1.0.0-rc5"
+APP_VERSION = "1.0.0-rc6"
 
 # Paths - resolve relative to engine directory
 ENGINE_DIR = Path(__file__).resolve().parent

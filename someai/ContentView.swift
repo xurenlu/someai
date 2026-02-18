@@ -96,8 +96,8 @@ struct ContentView: View {
         }
         .onAppear {
             engineManager.startEngine()
-            // Engine needs ~1s to start
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            // Engine needs ~2s to start; fetchHealth/fetchModels have built-in retry (3 attempts, 1.5s apart)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 refreshEngineStatus()
             }
         }
@@ -183,22 +183,29 @@ struct ModelManagerView: View {
                     Circle()
                         .fill(engineManager.isRunning ? Color.green : Color.red)
                         .frame(width: 8, height: 8)
-                    Text(engineManager.isRunning ? "Engine running" : "Engine stopped")
+                    Text(engineManager.isRunning ? String(localized: "model_manager.status.engine_running") : String(localized: "model_manager.status.engine_stopped"))
                         .font(.headline)
                 }
                 if isLoading {
                     ProgressView()
                 } else {
-                    Text("Health: \(healthStatus)")
+                    Text("\(String(localized: "model_manager.health")): \(healthStatus)")
                         .font(.subheadline)
                 }
                 if let err = lastError {
-                    Text("Error: \(err)")
+                    Text("\(String(localized: "model_manager.error_label")): \(err)")
                         .font(.caption)
                         .foregroundStyle(.red)
+                    Button {
+                        Task { await refreshAsync() }
+                    } label: {
+                        Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading)
                 }
             } header: {
-                Text("Status")
+                Text(String(localized: "model_manager.status_header"))
             }
 
             Section {
@@ -220,10 +227,20 @@ struct ModelManagerView: View {
                     .padding(.vertical, 4)
                 }
             } header: {
-                Text("Models")
+                Text(String(localized: "model_manager.models_header"))
             }
         }
-        .navigationTitle("Model Manager")
+        .navigationTitle(String(localized: "sidebar.model_manager"))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await refreshAsync() }
+                } label: {
+                    Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+            }
+        }
         .refreshable {
             await refreshAsync()
         }

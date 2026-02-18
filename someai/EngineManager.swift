@@ -51,14 +51,25 @@ final class EngineManager {
             print("[EngineManager] Cannot start: neither uv nor python found")
             return
         }
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        // Capture stderr for debugging (read async to avoid blocking)
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            if let str = String(data: data, encoding: .utf8), !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("[EngineManager] stderr: \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }
 
         do {
             try process.run()
             self.process = process
             isRunning = true
-            print("[EngineManager] Started engine at \(baseURL)")
+            print("[EngineManager] Started engine at \(baseURL), cwd=\(projectRoot.path)")
         } catch {
             print("[EngineManager] Failed to start: \(error)")
         }

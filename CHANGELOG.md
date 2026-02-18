@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0-rc6] - 2026-02-18
+
+### Changed
+
+- Model Manager：健康检查增加自动重试（3 次，间隔 1.5s）
+- Model Manager：启动等待时间由 1.2s 增至 2s
+- Model Manager：连接失败时显示更友好的错误提示（区分连接拒绝、超时、网络未连接）
+- Model Manager：新增重试按钮（工具栏 + 错误区域）
+- EngineManager：增加 stderr 输出日志，便于排查引擎启动问题
+- EngineClient：增加 fetchHealth/fetchModels 重试逻辑及详细日志
+
 ## [1.0.0-rc5] - 2026-02-18
 
 ### Changed
