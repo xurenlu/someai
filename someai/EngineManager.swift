@@ -23,9 +23,15 @@ final class EngineManager {
     var baseURL: URL { EngineConfig.shared.baseURL }
     private let startupTimeoutSeconds: TimeInterval = 15
     private let readinessPollNanos: UInt64 = 400_000_000
+    private var prepareTask: Task<Bool, Never>?
 
     var engineURL: URL {
         baseURL.appendingPathComponent("health")
+    }
+
+    /// 项目根目录，用于 PID 文件等。nil 表示引擎目录未找到。
+    var projectRoot: URL? {
+        Self.findEngineDirectory()?.deletingLastPathComponent()
     }
 
     init() {}
@@ -41,18 +47,6 @@ final class EngineManager {
         lastStderrLine = nil
         isStarting = true
 
-        let occupied = PortChecker.processesUsing(port: port)
-        if let first = occupied.first {
-            lastStartupError = String(
-                format: String(localized: "model_manager.error.port_in_use_by_process"),
-                port,
-                first
-            )
-            isStarting = false
-            print("[EngineManager] Cannot start: port \(port) is in use by \(first)")
-            return
-        }
-
         let engineDir = Self.findEngineDirectory()
         guard let engine = engineDir else {
             lastStartupError = String(localized: "model_manager.error.engine_dir_not_found")
@@ -60,8 +54,38 @@ final class EngineManager {
             print("[EngineManager] Cannot start: engine dir not found")
             return
         }
-
         let projectRoot = engine.deletingLastPathComponent()
+
+        var occupied = PortChecker.processesUsing(port: port)
+        if let first = occupied.first {
+            let killed = PortChecker.killEngineProcessesOn(port: port, projectRoot: projectRoot)
+            if killed > 0 {
+                print("[EngineManager] Killed \(killed) stale engine process(es) on port \(port)")
+                Thread.sleep(forTimeInterval: 0.5)
+                occupied = PortChecker.processesUsing(port: port)
+                if occupied.isEmpty {
+                    // 端口已释放，继续启动
+                } else {
+                    lastStartupError = String(
+                        format: String(localized: "model_manager.error.port_in_use_by_process"),
+                        port,
+                        occupied.joined(separator: ", ")
+                    )
+                    isStarting = false
+                    return
+                }
+            } else {
+                lastStartupError = String(
+                    format: String(localized: "model_manager.error.port_in_use_by_process"),
+                    port,
+                    first
+                )
+                isStarting = false
+                print("[EngineManager] Cannot start: port \(port) is in use by \(first) (not our engine)")
+                return
+            }
+        }
+
         let process = Process()
         process.currentDirectoryURL = projectRoot
 
@@ -97,6 +121,9 @@ final class EngineManager {
         }
 
         process.terminationHandler = { [weak self] p in
+            if let cwd = p.currentDirectoryURL {
+                PortChecker.removePidFile(projectRoot: cwd)
+            }
             Task { @MainActor in
                 guard let self else { return }
                 if self.process?.processIdentifier == p.processIdentifier {
@@ -126,6 +153,7 @@ final class EngineManager {
             self.process = process
             isRunning = true
             isStarting = false
+            Self.writePidFile(pid: process.processIdentifier, projectRoot: projectRoot)
             print("[EngineManager] Started engine at \(baseURL), cwd=\(projectRoot.path)")
         } catch {
             isStarting = false
@@ -140,7 +168,15 @@ final class EngineManager {
     @MainActor
     func ensureEngineReady() async -> Bool {
         if !isRunning {
-            let envReady = await prepareEnvironmentIfNeeded()
+            let envReady: Bool
+            if let existing = prepareTask {
+                envReady = await existing.value
+            } else {
+                let task = Task { await prepareEnvironmentIfNeeded() }
+                prepareTask = task
+                envReady = await task.value
+                prepareTask = nil
+            }
             guard envReady else {
                 return false
             }
@@ -154,6 +190,9 @@ final class EngineManager {
 
     @MainActor
     func stopEngine() {
+        if let p = process, let cwd = p.currentDirectoryURL {
+            PortChecker.removePidFile(projectRoot: cwd)
+        }
         process?.terminate()
         process = nil
         isRunning = false
@@ -281,6 +320,16 @@ final class EngineManager {
         }
         let uvPath = Self.findUvPath() ?? "not found"
         lines.append("uv path: \(uvPath)")
+        if let resourceURL = Bundle.main.resourceURL {
+            let projectDirURL = resourceURL.appendingPathComponent("project_dir.txt")
+            if let data = try? Data(contentsOf: projectDirURL),
+               let content = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !content.isEmpty {
+                lines.append("project_dir.txt: \(content)")
+            } else {
+                lines.append("project_dir.txt: not found or empty")
+            }
+        }
         if let engine = Self.findEngineDirectory() {
             let projectRoot = engine.deletingLastPathComponent()
             let pythonPath = Self.findPythonPath(projectRoot: projectRoot) ?? "not found"
@@ -294,6 +343,12 @@ final class EngineManager {
             lines.append("Port occupants: \(occupied.joined(separator: ", "))")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func writePidFile(pid: Int32, projectRoot: URL) {
+        let pidFile = projectRoot.appendingPathComponent(".engine.pid")
+        let content = "\(pid)"
+        try? content.write(to: pidFile, atomically: true, encoding: .utf8)
     }
 
     private static func runProcess(
@@ -347,18 +402,34 @@ final class EngineManager {
     }
 
     private static func findEngineDirectory() -> URL? {
-        // 1. Development: ENGINE_PATH env or current working directory (Xcode scheme)
+        // 1. ENGINE_PATH env (for custom override)
         if let envPath = ProcessInfo.processInfo.environment["ENGINE_PATH"],
            FileManager.default.fileExists(atPath: envPath) {
             return URL(fileURLWithPath: envPath)
         }
+
+        // 2. project_dir.txt (written at build time when running from Xcode)
+        //    优先使用项目目录，这样能复用用户手动 uv sync 创建的 .venv
+        if let resourceURL = Bundle.main.resourceURL {
+            let projectDirURL = resourceURL.appendingPathComponent("project_dir.txt")
+            if let data = try? Data(contentsOf: projectDirURL),
+               let projectRoot = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !projectRoot.isEmpty {
+                let engineInProject = (projectRoot as NSString).appendingPathComponent("engine")
+                if FileManager.default.fileExists(atPath: engineInProject) {
+                    return URL(fileURLWithPath: engineInProject)
+                }
+            }
+        }
+
+        // 3. Current working directory (e.g. Xcode scheme with custom working dir)
         let cwd = FileManager.default.currentDirectoryPath
         let engineInCwd = (cwd as NSString).appendingPathComponent("engine")
         if FileManager.default.fileExists(atPath: engineInCwd) {
             return URL(fileURLWithPath: engineInCwd)
         }
 
-        // 2. In app bundle Resources (packaged app)
+        // 4. In app bundle Resources (packaged app, no project_dir.txt)
         if let resourceURL = Bundle.main.resourceURL {
             let engineInBundle = resourceURL.appendingPathComponent("engine")
             if FileManager.default.fileExists(atPath: engineInBundle.path) {

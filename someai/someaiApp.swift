@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct someaiApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var engineManager = EngineManager.shared
 
     var body: some Scene {
@@ -16,5 +18,11 @@ struct someaiApp: App {
             ContentView()
                 .environment(engineManager)
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        EngineManager.shared.stopEngine()
     }
 }

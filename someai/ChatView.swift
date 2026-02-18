@@ -17,7 +17,7 @@ struct ChatView: View {
 
     private var llmModels: [EngineClient.ModelSummary] {
         let filtered = models.filter { $0.type == "llm" }
-        return filtered.isEmpty ? [EngineClient.ModelSummary(id: "qwen2.5-1.5b-instruct", name: "Qwen2.5-1.5B", type: "llm", capabilities: [], status: "", size_bytes: nil, quantization: nil, version: nil, updated_at: nil)] : filtered
+        return filtered.isEmpty ? [EngineClient.ModelSummary(id: "qwen2.5-1.5b-instruct", name: "Qwen2.5-1.5B", type: "llm", capabilities: [], status: "", size_bytes: nil, quantization: nil, version: nil, updated_at: nil, local_dir: nil, actual_size_bytes: nil, file_types: nil)] : filtered
     }
 
     var body: some View {

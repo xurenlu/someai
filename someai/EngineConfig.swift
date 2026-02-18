@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Darwin
 
 /// 引擎配置（端口等），与 EngineManager、EngineClient 共享。
 final class EngineConfig {
@@ -72,5 +73,84 @@ struct PortChecker {
             result.append("\(command) (PID \(pid))")
         }
         return result
+    }
+
+    /// 获取占用指定端口的进程 PID 列表。
+    static func pidsUsing(port: Int) -> [Int] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-t", "-i", ":\(port)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return [] }
+            return output.split(separator: "\n").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        } catch {
+            return []
+        }
+    }
+
+    /// 获取进程的完整命令行。
+    private static func commandLine(pid: Int) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", "\(pid)", "-o", "args="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    /// 从 PID 文件读取我们记录的引擎 PID（启动时写入）。
+    static func readPidFromFile(projectRoot: URL) -> Int? {
+        let pidFile = projectRoot.appendingPathComponent(".engine.pid")
+        guard let data = try? Data(contentsOf: pidFile),
+              let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = Int(s) else { return nil }
+        return pid
+    }
+
+    /// 删除 PID 文件。
+    static func removePidFile(projectRoot: URL) {
+        let pidFile = projectRoot.appendingPathComponent(".engine.pid")
+        try? FileManager.default.removeItem(at: pidFile)
+    }
+
+    /// 判断进程是否为我们的引擎：PID 文件匹配 或 命令行含 uvicorn + engine.server。
+    static func isEngineProcess(pid: Int, projectRoot: URL?) -> Bool {
+        if let root = projectRoot, let ourPid = readPidFromFile(projectRoot: root), pid == ourPid {
+            return true
+        }
+        guard let cmd = commandLine(pid: pid) else { return false }
+        return cmd.contains("uvicorn") && cmd.contains("engine.server")
+    }
+
+    /// 终止占用端口的旧引擎进程，返回终止的数量。projectRoot 用于读取 PID 文件。
+    static func killEngineProcessesOn(port: Int, projectRoot: URL?) -> Int {
+        let pids = pidsUsing(port: port)
+        let ourPid = projectRoot.flatMap { readPidFromFile(projectRoot: $0) }
+        var killed = 0
+        for pid in pids {
+            if isEngineProcess(pid: pid, projectRoot: projectRoot) {
+                if kill(pid_t(pid), SIGTERM) == 0 {
+                    killed += 1
+                }
+                if pid == ourPid, let root = projectRoot {
+                    removePidFile(projectRoot: root)
+                }
+            }
+        }
+        return killed
     }
 }

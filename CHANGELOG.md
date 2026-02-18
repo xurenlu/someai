@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.0.0-rc13] - 2026-02-18
+
+### Added
+
+- Model Manager：已安装模型支持「删除」按钮，删除后可重新下载；删除前有确认对话框
+
+## [1.0.0-rc12] - 2026-02-18
+
+### Added
+
+- Model Manager：显示模型大小（预计/实际）、文件类型（.safetensors 等）
+- Model Manager：已安装模型支持「在 Finder 中打开」查看本地目录
+- Model Manager：下载中显示预计大小，便于判断是否在真实下载
+- Model Manager：工具栏新增「模型目录」按钮，可打开 models 根目录查看存储位置
+
+### Fixed
+
+- 下载 API：校验 huggingface_hub 返回码，失败时返回具体错误信息
+- 已安装判定：仅当目录内存在文件时才显示 installed，避免空目录误判
+
+## [1.0.0-rc11] - 2026-02-18
+
+### Added
+
+- Model Manager：每个未下载模型后新增「下载」按钮，支持一键下载
+- 模型列表：新增适合 16GB M2 Mac 的模型（Qwen2.5-0.5B/3B、TinyLlama-1.1B、Phi-2、Whisper Tiny 等）
+- 端口占用：启动时写入 `.engine.pid`，结合 PID 文件与进程名（uvicorn + engine.server）判断是否为我们的引擎；自动终止旧引擎或提供「结束占用进程并重试」按钮
+
+## [1.0.0-rc10] - 2026-02-18
+
+### Fixed
+
+- 修复 Xcode 开发时 App 与手动 uv sync 使用不同项目路径的问题：构建时写入 project_dir.txt，运行时优先使用项目目录，复用用户手动创建的 .venv，避免「自动修复中」卡住或引擎启动失败
+
 ## [1.0.0-rc9] - 2026-02-18
 
 ### Fixed

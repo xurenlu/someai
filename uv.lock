@@ -108,7 +108,7 @@ wheels = [
 
 [[package]]
 name = "macaistudio-engine"
-version = "1.0.0rc9"
+version = "1.0.0rc13"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
@@ -122,9 +122,6 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0,<0.35" },
 ]
-
-[package.metadata.requires-dev]
-dev = []
 
 [[package]]
 name = "pydantic"

@@ -1,6 +1,6 @@
 """
 MacAIStudio Local AI Engine - FastAPI Server
-Base URL: http://127.0.0.1:8001
+Base URL: http://127.0.0.1:18080
 """
 from __future__ import annotations
 

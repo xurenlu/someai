@@ -1,16 +1,18 @@
 """
 Ollama-style model query API.
 GET /models, GET /models/loaded, GET /models/{id}
+DELETE /models/{id} - remove local model files
 """
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from .config import APP_VERSION, MODELS_JSON
+from .config import APP_VERSION, MODELS_JSON, MODELS_DIR
 
 router = APIRouter()
 
@@ -40,13 +42,54 @@ def _get_model_by_id(model_id: str) -> dict | None:
     return None
 
 
-def _check_installed(model: dict) -> bool:
-    """Check if model files exist (placeholder - will be enhanced in M5)."""
-    models_dir = Path(__file__).resolve().parent.parent / "models"
+def _model_subdir(model_type: str) -> str:
+    return {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd"}.get(model_type, model_type)
+
+
+def _get_model_local_dir(model: dict) -> Path | None:
+    """Return local directory path if it exists (may be empty)."""
     model_type = model.get("type", "")
-    subdir = {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd"}.get(model_type, model_type)
-    model_path = models_dir / subdir / model.get("id", "")
-    return model_path.exists() if model_path else False
+    subdir = _model_subdir(model_type)
+    local_path = MODELS_DIR / subdir / model.get("id", "")
+    return local_path if local_path.exists() else None
+
+
+def _dir_has_files(path: Path) -> bool:
+    """Check if directory contains at least one file."""
+    try:
+        return any(p.is_file() for p in path.rglob("*"))
+    except OSError:
+        return False
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Recursively sum file sizes in directory."""
+    total = 0
+    try:
+        for p in path.rglob("*"):
+            if p.is_file():
+                total += p.stat().st_size
+    except OSError:
+        pass
+    return total
+
+
+def _dir_file_extensions(path: Path) -> list[str]:
+    """Return unique file extensions in directory (e.g. ['.safetensors', '.json'])."""
+    exts = set()
+    try:
+        for p in path.rglob("*"):
+            if p.is_file() and p.suffix:
+                exts.add(p.suffix.lower())
+    except OSError:
+        pass
+    return sorted(exts)
+
+
+def _check_installed(model: dict) -> bool:
+    """Check if model files exist (directory must have at least one file)."""
+    local_dir = _get_model_local_dir(model)
+    return local_dir is not None and _dir_has_files(local_dir)
 
 
 @router.get("/models", response_class=JSONResponse)
@@ -56,6 +99,9 @@ async def list_models():
     result = []
     for m in models:
         installed = _check_installed(m)
+        local_dir = _get_model_local_dir(m)
+        actual_size = _dir_size_bytes(local_dir) if local_dir else None
+        file_types = _dir_file_extensions(local_dir) if local_dir else []
         result.append({
             "id": m.get("id", ""),
             "name": m.get("name", m.get("id", "")),
@@ -66,6 +112,9 @@ async def list_models():
             "quantization": m.get("quantization"),
             "version": m.get("version", APP_VERSION),
             "updated_at": m.get("updated_at"),
+            "local_dir": str(local_dir) if local_dir else None,
+            "actual_size_bytes": actual_size,
+            "file_types": file_types,
         })
     return JSONResponse(
         content={"models": result},
@@ -90,6 +139,34 @@ async def list_loaded_models():
                 "memory_mb": round(get_current_memory_mb(), 1),
             },
         },
+        headers=_version_header(),
+    )
+
+
+@router.delete("/models/{model_id}", response_class=JSONResponse)
+async def delete_model(model_id: str):
+    """Delete local model files. Allows re-download."""
+    model = _get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MODEL_NOT_FOUND", "message": f"model not found: {model_id}"},
+        )
+    local_dir = _get_model_local_dir(model)
+    if not local_dir:
+        return JSONResponse(
+            content={"status": "ok", "model_id": model_id, "message": "not installed"},
+            headers=_version_header(),
+        )
+    try:
+        shutil.rmtree(local_dir)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "DELETE_FAILED", "message": str(e)},
+        )
+    return JSONResponse(
+        content={"status": "ok", "model_id": model_id},
         headers=_version_header(),
     )
 

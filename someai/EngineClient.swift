@@ -51,6 +51,9 @@ struct EngineClient {
         let quantization: String?
         let version: String?
         let updated_at: String?
+        let local_dir: String?
+        let actual_size_bytes: Int?
+        let file_types: [String]?
     }
 
     struct ModelsResponse: Codable {
@@ -151,5 +154,63 @@ struct EngineClient {
         let url = baseURL.appendingPathComponent("models").appendingPathComponent("loaded")
         let (data, _) = try await URLSession.shared.data(from: url)
         return try JSONDecoder().decode(LoadedModelsResponse.self, from: data)
+    }
+
+    struct DownloadResponse: Codable {
+        let status: String
+        let model_id: String
+        let local_dir: String?
+    }
+
+    struct ErrorResponse: Codable {
+        let error: ErrorDetail?
+    }
+
+    struct ErrorDetail: Codable {
+        let code: String?
+        let message: String?
+    }
+
+    /// Download model via engine. Uses 1 hour timeout for large models.
+    static func downloadModel(modelId: String) async throws -> DownloadResponse {
+        let url = baseURL.appendingPathComponent("models").appendingPathComponent("download")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["model_id": modelId])
+        req.timeoutInterval = 3600
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        if http.statusCode >= 200, http.statusCode < 300 {
+            return try JSONDecoder().decode(DownloadResponse.self, from: data)
+        }
+        if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+           let msg = errBody.error?.message {
+            throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Download failed"])
+    }
+
+    /// Delete local model files. Allows re-download.
+    static func deleteModel(modelId: String) async throws {
+        let url = baseURL.appendingPathComponent("models").appendingPathComponent(modelId)
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        if http.statusCode >= 200, http.statusCode < 300 {
+            return
+        }
+        if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+           let msg = errBody.error?.message {
+            throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Delete failed"])
     }
 }

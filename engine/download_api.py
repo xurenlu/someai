@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -13,10 +14,15 @@ from .models_api import _get_model_by_id
 
 router = APIRouter()
 
-# HuggingFace repo mapping
+# HuggingFace repo mapping (16GB M2 Mac friendly)
 HF_REPOS = {
+    "qwen2.5-0.5b-instruct": "Qwen/Qwen2.5-0.5B-Instruct",
     "qwen2.5-1.5b-instruct": "Qwen/Qwen2.5-1.5B-Instruct",
+    "qwen2.5-3b-instruct": "Qwen/Qwen2.5-3B-Instruct",
+    "tinyllama-1.1b-chat": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "phi-2": "microsoft/phi-2",
     "qwen3-tts-12hz-0.6b": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "whisper-tiny": "openai/whisper-tiny",
     "whisper-small": "openai/whisper-small",
     "sd-1.5": "runwayml/stable-diffusion-v1-5",
 }
@@ -51,16 +57,24 @@ async def download_model(req: DownloadRequest):
     local_dir = models_dir / subdir / req.model_id
     local_dir.mkdir(parents=True, exist_ok=True)
     try:
-        subprocess.run(
-            ["python3", "-m", "huggingface_hub", "download", repo, "--local-dir", str(local_dir)],
+        r = subprocess.run(
+            [sys.executable, "-m", "huggingface_hub", "download", repo, "--local-dir", str(local_dir)],
             capture_output=True,
             timeout=3600,
             check=False,
         )
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or b"").decode("utf-8", errors="replace").strip()
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "DOWNLOAD_FAILED", "message": err or f"huggingface_hub exited with code {r.returncode}"},
+            )
         return JSONResponse(
             content={"status": "ok", "model_id": req.model_id, "local_dir": str(local_dir)},
             headers=_version_header(),
         )
+    except HTTPException:
+        raise
     except subprocess.TimeoutExpired:
         raise HTTPException(
             status_code=504,

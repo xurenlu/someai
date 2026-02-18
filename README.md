@@ -12,7 +12,7 @@ uv sync
 uv run python run_engine.py
 ```
 
-引擎地址：http://127.0.0.1:8001
+引擎地址：http://127.0.0.1:18080（可在 App 设置中自定义端口，或通过 `ENGINE_PORT=端口 uv run python run_engine.py` 指定）
 
 ### 2. Swift App
 

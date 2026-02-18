@@ -1,6 +1,20 @@
 {
   "models": [
     {
+      "id": "qwen2.5-0.5b-instruct",
+      "name": "Qwen2.5-0.5B-Instruct",
+      "type": "llm",
+      "family": "qwen",
+      "capabilities": ["chat", "completion"],
+      "context_length": 8192,
+      "languages": ["zh", "en"],
+      "default_params": {"temperature": 0.7, "max_tokens": 512},
+      "size_bytes": 1073741824,
+      "quantization": "q4_k_m",
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
       "id": "qwen2.5-1.5b-instruct",
       "name": "Qwen2.5-1.5B-Instruct",
       "type": "llm",
@@ -8,12 +22,49 @@
       "capabilities": ["chat", "completion"],
       "context_length": 8192,
       "languages": ["zh", "en"],
-      "default_params": {
-        "temperature": 0.7,
-        "max_tokens": 512
-      },
+      "default_params": {"temperature": 0.7, "max_tokens": 512},
       "size_bytes": 2147483648,
       "quantization": "q4_k_m",
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "qwen2.5-3b-instruct",
+      "name": "Qwen2.5-3B-Instruct",
+      "type": "llm",
+      "family": "qwen",
+      "capabilities": ["chat", "completion"],
+      "context_length": 8192,
+      "languages": ["zh", "en"],
+      "default_params": {"temperature": 0.7, "max_tokens": 512},
+      "size_bytes": 3221225472,
+      "quantization": "q4_k_m",
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "tinyllama-1.1b-chat",
+      "name": "TinyLlama-1.1B-Chat",
+      "type": "llm",
+      "family": "llama",
+      "capabilities": ["chat", "completion"],
+      "context_length": 2048,
+      "languages": ["en"],
+      "default_params": {"temperature": 0.7, "max_tokens": 512},
+      "size_bytes": 1100048384,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "phi-2",
+      "name": "Phi-2",
+      "type": "llm",
+      "family": "phi",
+      "capabilities": ["chat", "completion", "code"],
+      "context_length": 2048,
+      "languages": ["en"],
+      "default_params": {"temperature": 0.7, "max_tokens": 512},
+      "size_bytes": 2779683840,
       "version": "1.0.0-rc1",
       "updated_at": "2026-02-18T10:00:00Z"
     },
@@ -24,11 +75,19 @@
       "family": "qwen",
       "capabilities": ["tts"],
       "languages": ["zh", "en"],
-      "default_params": {
-        "language": "zh",
-        "speaker": "default"
-      },
+      "default_params": {"language": "zh", "speaker": "default"},
       "size_bytes": 6442450944,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "whisper-tiny",
+      "name": "Whisper Tiny",
+      "type": "stt",
+      "family": "whisper",
+      "capabilities": ["stt"],
+      "languages": ["zh", "en", "multilingual"],
+      "size_bytes": 80000000,
       "version": "1.0.0-rc1",
       "updated_at": "2026-02-18T10:00:00Z"
     },
@@ -49,10 +108,7 @@
       "type": "image",
       "family": "sd",
       "capabilities": ["image_generate"],
-      "default_params": {
-        "width": 512,
-        "height": 512
-      },
+      "default_params": {"width": 512, "height": 512},
       "size_bytes": 4294967296,
       "version": "1.0.0-rc1",
       "updated_at": "2026-02-18T10:00:00Z"

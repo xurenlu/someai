@@ -1,5 +1,6 @@
 # Python
 .venv/
+.engine.pid
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -8,6 +9,7 @@ build/
 
 # Xcode
 DerivedData/
+project_dir.txt
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 

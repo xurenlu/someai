@@ -202,6 +202,9 @@ struct ModelManagerView: View {
     @Binding var lastError: String?
     var engineManager: EngineManager
     @State private var portOccupants: [String] = []
+    @State private var downloadingId: String? = nil
+    @State private var deletingId: String? = nil
+    @State private var modelToDelete: EngineClient.ModelSummary? = nil
 
     var body: some View {
         List {
@@ -237,6 +240,15 @@ struct ModelManagerView: View {
                             .foregroundStyle(.orange)
                     }
                     HStack(spacing: 8) {
+                        if !portOccupants.isEmpty {
+                            Button {
+                                Task { await killStaleEngineAndRetry() }
+                            } label: {
+                                Label(String(localized: "model_manager.kill_and_retry"), systemImage: "xmark.circle")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isLoading)
+                        }
                         Button {
                             Task { await refreshAsync() }
                         } label: {
@@ -259,21 +271,76 @@ struct ModelManagerView: View {
 
             Section {
                 ForEach(models, id: \.id) { model in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.name)
-                            .font(.headline)
-                        HStack {
-                            Text(model.type)
-                                .font(.caption)
-                                .padding(2)
-                                .background(Color.blue.opacity(0.2))
-                                .cornerRadius(4)
-                            Text(model.status)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.name)
+                                .font(.headline)
+                            HStack(spacing: 6) {
+                                Text(model.type)
+                                    .font(.caption)
+                                    .padding(2)
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(4)
+                                Text(model.status)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let size = model.actual_size_bytes ?? model.size_bytes, size > 0 {
+                                    Text(formatBytes(size))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let types = model.file_types, !types.isEmpty {
+                                    Text(types.joined(separator: " "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        Spacer()
+                        HStack(spacing: 6) {
+                            if model.status == "installed", let dir = model.local_dir {
+                                Button {
+                                    openInFinder(path: dir)
+                                } label: {
+                                    Label(String(localized: "model_manager.open_in_finder"), systemImage: "folder")
+                                }
+                                .buttonStyle(.bordered)
+                                Button(role: .destructive) {
+                                    modelToDelete = model
+                                } label: {
+                                    if deletingId == model.id {
+                                        ProgressView()
+                                            .scaleEffect(0.7)
+                                    } else {
+                                        Label(String(localized: "model_manager.delete"), systemImage: "trash")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(deletingId != nil)
+                            }
+                            if model.status == "not_downloaded" {
+                                Button {
+                                    Task { await downloadModel(model.id) }
+                                } label: {
+                                    if downloadingId == model.id {
+                                        HStack(spacing: 4) {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                            if let sz = model.size_bytes, sz > 0 {
+                                                Text(String(format: String(localized: "model_manager.downloading_size"), formatBytes(sz)))
+                                                    .font(.caption)
+                                            }
+                                        }
+                                    } else {
+                                        Label(String(localized: "model_manager.download"), systemImage: "arrow.down.circle")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(downloadingId != nil)
+                            }
                         }
                     }
-                    .padding(.vertical, 4)
                 }
             } header: {
                 Text(String(localized: "model_manager.models_header"))
@@ -287,23 +354,106 @@ struct ModelManagerView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await refreshAsync() }
-                } label: {
-                    Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                HStack(spacing: 8) {
+                    if let root = engineManager.projectRoot {
+                        Button {
+                            openInFinder(path: root.appendingPathComponent("models").path)
+                        } label: {
+                            Label(String(localized: "model_manager.open_models_root"), systemImage: "folder.badge.gearshape")
+                        }
+                        .help(String(localized: "model_manager.open_models_root_help"))
+                    }
+                    Button {
+                        Task { await refreshAsync() }
+                    } label: {
+                        Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isLoading)
                 }
-                .disabled(isLoading)
             }
         }
         .refreshable {
             await refreshAsync()
         }
+        .confirmationDialog(String(localized: "model_manager.delete_confirm_title"), isPresented: Binding(
+            get: { modelToDelete != nil },
+            set: { if !$0 { modelToDelete = nil } }
+        )) {
+            if let m = modelToDelete {
+                Button(String(localized: "model_manager.delete"), role: .destructive) {
+                    Task { await deleteModel(m.id) }
+                }
+                Button(String(localized: "model_manager.cancel"), role: .cancel) {
+                    modelToDelete = nil
+                }
+            }
+        } message: {
+            if let m = modelToDelete {
+                Text(String(format: String(localized: "model_manager.delete_confirm_message"), m.name))
+            }
+        }
+    }
+
+    private func formatBytes(_ bytes: Int) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        let mb = Double(bytes) / 1_048_576
+        if gb >= 1 { return String(format: "%.1f GB", gb) }
+        if mb >= 1 { return String(format: "%.1f MB", mb) }
+        return String(format: "%.0f KB", Double(bytes) / 1024)
+    }
+
+    private func openInFinder(path: String) {
+        let url = URL(fileURLWithPath: path)
+        NSWorkspace.shared.open(url)
     }
 
     private func copyDiagnostics() {
         let text = engineManager.buildDiagnostics()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func deleteModel(_ modelId: String) async {
+        modelToDelete = nil
+        deletingId = modelId
+        lastError = nil
+        do {
+            try await EngineClient.deleteModel(modelId: modelId)
+            await refreshAsync()
+        } catch {
+            await MainActor.run {
+                lastError = error.localizedDescription
+            }
+        }
+        await MainActor.run {
+            deletingId = nil
+        }
+    }
+
+    private func killStaleEngineAndRetry() async {
+        let port = EngineConfig.shared.enginePort
+        let projectRoot = engineManager.projectRoot
+        let killed = PortChecker.killEngineProcessesOn(port: port, projectRoot: projectRoot)
+        if killed > 0 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        await refreshAsync()
+    }
+
+    private func downloadModel(_ modelId: String) async {
+        downloadingId = modelId
+        lastError = nil
+        do {
+            _ = try await EngineClient.downloadModel(modelId: modelId)
+            await refreshAsync()
+        } catch {
+            await MainActor.run {
+                lastError = error.localizedDescription
+            }
+        }
+        await MainActor.run {
+            downloadingId = nil
+        }
     }
 
     private func refreshAsync() async {
