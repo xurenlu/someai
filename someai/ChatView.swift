@@ -65,6 +65,14 @@ struct ChatView: View {
             TextField("chat.input_placeholder", text: $inputText, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
+                .onKeyPress { press in
+                    guard press.key == .return else { return .ignored }
+                    if press.modifiers.contains(EventModifiers.shift) {
+                        return .ignored  // Shift+Enter: 换行
+                    }
+                    sendMessage()
+                    return .handled  // Enter: 发送
+                }
 
             Button {
                 sendMessage()

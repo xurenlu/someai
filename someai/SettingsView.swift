@@ -50,8 +50,13 @@ final class MicPermissionObserver {
 }
 
 struct SettingsView: View {
+    @Environment(EngineManager.self) var engineManager
+    @AppStorage("engine_use_china_mirror") private var useChinaMirror = false
     @State private var micObserver = MicPermissionObserver()
     @State private var enginePortText: String = "\(EngineConfig.shared.enginePort)"
+    @State private var isSyncing = false
+    @State private var syncMessage: String?
+    @State private var syncFailed = false
 
     var body: some View {
         List {
@@ -78,6 +83,42 @@ struct SettingsView: View {
                 }
                 .onAppear {
                     enginePortText = "\(EngineConfig.shared.enginePort)"
+                    memoryLimitText = EngineConfig.shared.memoryLimitMB > 0 ? "\(EngineConfig.shared.memoryLimitMB)" : ""
+                }
+                HStack {
+                    Text("settings.memory_limit_mb")
+                    Spacer()
+                    TextField(String(localized: "settings.memory_limit_placeholder"), text: $memoryLimitText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyMemoryLimit() }
+                }
+                Toggle("settings.use_china_mirror", isOn: $useChinaMirror)
+                if isSyncing {
+                    HStack {
+                        ProgressView()
+                        Text("settings.syncing_deps")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button("settings.sync_deps") {
+                        Task {
+                            isSyncing = true
+                            syncMessage = nil
+                            syncFailed = false
+                            let ok = await engineManager.syncDependencies()
+                            syncFailed = !ok
+                            syncMessage = ok ? String(localized: "settings.sync_deps_success") : String(localized: "settings.sync_deps_failed")
+                            isSyncing = false
+                        }
+                    }
+                    .disabled(isSyncing)
+                }
+                if let msg = syncMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(syncFailed ? .red : .secondary)
                 }
             } header: {
                 Text("settings.engine")
@@ -112,6 +153,18 @@ struct SettingsView: View {
                 Text("settings.permissions")
             } footer: {
                 Text("settings.mic_footer")
+            }
+
+            Section {
+                NavigationLink {
+                    LLMsTxtView()
+                } label: {
+                    Label("settings.view_llms_txt", systemImage: "doc.text")
+                }
+            } header: {
+                Text("settings.api_docs")
+            } footer: {
+                Text("settings.llms_txt_footer")
             }
         }
         .navigationTitle(String(localized: "sidebar.settings"))
@@ -152,5 +205,80 @@ struct SettingsView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+// MARK: - LLMs.txt Viewer
+
+struct LLMsTxtView: View {
+    @State private var content: String?
+    @State private var errorMessage: String?
+    @State private var isLoading = true
+
+    private var llmsTxtURL: URL {
+        EngineConfig.shared.baseURL.appendingPathComponent("llms.txt")
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let content {
+                ScrollView {
+                    Text(content)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("settings.llms_txt_error")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    Button("settings.llms_txt_open_browser") {
+                        openURL(llmsTxtURL)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            }
+        }
+        .navigationTitle("llms.txt")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task {
+            await fetchContent()
+        }
+    }
+
+    private func openURL(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    private func fetchContent() async {
+        isLoading = true
+        errorMessage = nil
+        content = nil
+        do {
+            let (data, _) = try await URLSession.shared.data(from: llmsTxtURL)
+            if let text = String(data: data, encoding: .utf8) {
+                content = text
+            } else {
+                errorMessage = "Invalid encoding"
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }

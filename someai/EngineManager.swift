@@ -21,7 +21,7 @@ final class EngineManager {
 
     private var port: Int { EngineConfig.shared.enginePort }
     var baseURL: URL { EngineConfig.shared.baseURL }
-    private let startupTimeoutSeconds: TimeInterval = 15
+    private let startupTimeoutSeconds: TimeInterval = 60
     private let readinessPollNanos: UInt64 = 400_000_000
     private var prepareTask: Task<Bool, Never>?
 
@@ -89,13 +89,13 @@ final class EngineManager {
         let process = Process()
         process.currentDirectoryURL = projectRoot
 
-        // Prefer: 1) uv run, 2) .venv/bin/python (from uv sync)
-        if let uvPath = Self.findUvPath() {
-            process.executableURL = URL(fileURLWithPath: uvPath)
-            process.arguments = ["run", "python", "-m", "uvicorn", "engine.server:app", "--host", "127.0.0.1", "--port", "\(port)"]
-        } else if let pythonPath = Self.findPythonPath(projectRoot: projectRoot) {
+        // 优先使用已存在的 .venv/bin/python，避免 uv run 每次启动都执行 sync；无 venv 时用 uv run
+        if let pythonPath = Self.findPythonPath(projectRoot: projectRoot) {
             process.executableURL = URL(fileURLWithPath: pythonPath)
             process.arguments = ["-m", "uvicorn", "engine.server:app", "--host", "127.0.0.1", "--port", "\(port)"]
+        } else if let uvPath = Self.findUvPath() {
+            process.executableURL = URL(fileURLWithPath: uvPath)
+            process.arguments = ["run", "python", "-m", "uvicorn", "engine.server:app", "--host", "127.0.0.1", "--port", "\(port)"]
         } else {
             lastStartupError = String(localized: "model_manager.error.python_not_found")
             isStarting = false
@@ -186,6 +186,29 @@ final class EngineManager {
             return false
         }
         return await waitForHealthReady(timeoutSeconds: startupTimeoutSeconds)
+    }
+
+    /// 手动执行 uv sync（用于依赖损坏或首次安装）。使用当前镜像设置。
+    @MainActor
+    func syncDependencies() async -> Bool {
+        guard let engine = Self.findEngineDirectory() else { return false }
+        let projectRoot = engine.deletingLastPathComponent()
+        guard let uvPath = Self.findUvPath() else { return false }
+        guard FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent("pyproject.toml").path) else {
+            return false
+        }
+        isPreparing = true
+        let env: [String: String]? = EngineConfig.shared.useChinaMirror
+            ? ["UV_INDEX_URL": EngineConfig.chinaMirrorURL]
+            : nil
+        let result = await Self.runProcess(
+            executablePath: uvPath,
+            arguments: ["sync"],
+            workingDirectory: projectRoot,
+            environment: env
+        )
+        isPreparing = false
+        return result.success
     }
 
     @MainActor
@@ -284,10 +307,14 @@ final class EngineManager {
 
         isPreparing = true
         print("[EngineManager] .venv missing, running uv sync...")
+        let env: [String: String]? = EngineConfig.shared.useChinaMirror
+            ? ["UV_INDEX_URL": EngineConfig.chinaMirrorURL]
+            : nil
         let result = await Self.runProcess(
             executablePath: uvPath,
             arguments: ["sync"],
-            workingDirectory: projectRoot
+            workingDirectory: projectRoot,
+            environment: env
         )
         isPreparing = false
         if !result.success {
@@ -354,13 +381,19 @@ final class EngineManager {
     private static func runProcess(
         executablePath: String,
         arguments: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        environment: [String: String]? = nil
     ) async -> (success: Bool, stderr: String?) {
         await Task.detached(priority: .utility) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath)
             process.arguments = arguments
             process.currentDirectoryURL = workingDirectory
+            if let env = environment {
+                var current = ProcessInfo.processInfo.environment
+                for (k, v) in env { current[k] = v }
+                process.environment = current
+            }
             let stderrPipe = Pipe()
             process.standardOutput = FileHandle.nullDevice
             process.standardError = stderrPipe

@@ -13,6 +13,8 @@ final class EngineConfig {
     static let shared = EngineConfig()
 
     private let portKey = "engine_port"
+    private let useChinaMirrorKey = "engine_use_china_mirror"
+    private let memoryLimitMBKey = "engine_memory_limit_mb"
 
     /// 有效端口范围
     private let minPort = 1024
@@ -34,6 +36,26 @@ final class EngineConfig {
     var baseURL: URL {
         URL(string: "http://127.0.0.1:\(enginePort)")!
     }
+
+    /// Python 引擎进程内存上限（MB），0 表示不限制
+    var memoryLimitMB: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: memoryLimitMBKey)
+            return v >= 0 ? v : 0
+        }
+        set {
+            UserDefaults.standard.set(max(0, newValue), forKey: memoryLimitMBKey)
+        }
+    }
+
+    /// 使用中国 PyPI 镜像（清华源）加速 uv sync 依赖下载
+    var useChinaMirror: Bool {
+        get { UserDefaults.standard.bool(forKey: useChinaMirrorKey) }
+        set { UserDefaults.standard.set(newValue, forKey: useChinaMirrorKey) }
+    }
+
+    /// 中国镜像 URL（清华源）
+    static let chinaMirrorURL = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
     private init() {}
 }

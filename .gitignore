@@ -15,3 +15,6 @@ project_dir.txt
 
 # macOS
 .DS_Store
+
+# Downloaded models (user data)
+models/

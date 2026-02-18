@@ -112,6 +112,61 @@
       "size_bytes": 4294967296,
       "version": "1.0.0-rc1",
       "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "vtp-small-f16d64",
+      "name": "VTP-Small (MiniMax)",
+      "type": "vision",
+      "family": "vtp",
+      "capabilities": ["vision_tokenizer", "image_encoder"],
+      "languages": ["en"],
+      "size_bytes": 700000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "vtp-base-f16d64",
+      "name": "VTP-Base (MiniMax)",
+      "type": "vision",
+      "family": "vtp",
+      "capabilities": ["vision_tokenizer", "image_encoder"],
+      "languages": ["en"],
+      "size_bytes": 1200000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "vtp-large-f16d64",
+      "name": "VTP-Large (MiniMax)",
+      "type": "vision",
+      "family": "vtp",
+      "capabilities": ["vision_tokenizer", "image_encoder"],
+      "languages": ["en"],
+      "size_bytes": 3000000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "siglip-base-patch16-224",
+      "name": "SigLIP-Base-224 (Google)",
+      "type": "vision",
+      "family": "siglip",
+      "capabilities": ["vision_encoder", "image_text"],
+      "languages": ["en"],
+      "size_bytes": 400000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "siglip-base-patch16-384",
+      "name": "SigLIP-Base-384 (Google)",
+      "type": "vision",
+      "family": "siglip",
+      "capabilities": ["vision_encoder", "image_text"],
+      "languages": ["en"],
+      "size_bytes": 400000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
     }
   ]
 }

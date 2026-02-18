@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.0.0-rc18] - 2026-02-18
+
+### Added
+
+- 设置：新增「使用中国 PyPI 镜像」开关，启用后 uv sync 使用清华源加速；新增「同步依赖」按钮可手动触发
+
+### Fixed
+
+- 引擎启动：将 faster_whisper、huggingface_hub、tqdm 改为惰性导入，避免启动时阻塞，/health 可在数秒内响应
+- 依赖：qwen-tts 改为可选（librosa→numba→llvmlite 在 Python 3.12+ 不兼容），默认使用 edge-tts；需 Qwen3-TTS 时运行 `uv sync --extra qwen-tts`（建议 Python 3.10/3.11）
+
+## [1.0.0-rc17] - 2026-02-18
+
+### Added
+
+- llms.txt：HTTP 接口 `/llms.txt` 与 `/llm.txt` 输出 LLM 友好的 API 清单
+- 设置页新增「API 文档」区块，可内嵌查看 llms.txt 或于浏览器打开
+
+## [1.0.0-rc17] - 2026-02-18
+
+### Changed
+
+- Model Manager：「复制诊断信息」按钮点击后显示「已复制」反馈，避免用户误以为未点击成功
+- LLM：优先使用已下载的本地模型（transformers），Ollama 仅作 fallback，不再强制依赖 Ollama
+- TTS：优先使用已下载的 Qwen3-TTS 本地模型，无则 fallback edge-tts（完全免费，无需 token/账号）
+- 依赖：新增 qwen-tts、soundfile
+
+## [1.0.0-rc16] - 2026-02-18
+
+### Added
+
+- 语音聊天完整实现：STT 使用 faster-whisper，LLM 支持 Ollama 或 transformers 本地推理，TTS 使用 edge-tts
+- 依赖：faster-whisper、edge-tts、httpx、transformers、torch、accelerate
+
+### Changed
+
+- TTS 接口返回 MP3 格式（原为 WAV placeholder）
+
+## [1.0.0-rc15] - 2026-02-18
+
+### Added
+
+- 支持添加 HuggingFace 自定义模型：Model Manager 新增「从 HuggingFace 添加」按钮，可输入任意 `org/repo` 仓库添加模型并下载
+- models.json 支持 `hf_repo` 字段，可手动编辑配置指定自定义 HuggingFace 仓库
+
+## [1.0.0-rc14] - 2026-02-18
+
+### Added
+
+- 模型下载：支持 SSE 流式进度条，显示已下载/总大小
+- 模型下载：支持断点续传（重试时跳过已下载文件）
+
 ## [1.0.0-rc13] - 2026-02-18
 
 ### Added

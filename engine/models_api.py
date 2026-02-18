@@ -1,16 +1,19 @@
 """
 Ollama-style model query API.
 GET /models, GET /models/loaded, GET /models/{id}
+POST /models - add custom HuggingFace model
 DELETE /models/{id} - remove local model files
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from .config import APP_VERSION, MODELS_JSON, MODELS_DIR
 
@@ -33,6 +36,20 @@ def _load_models_config() -> list[dict]:
         return []
 
 
+def _save_models_config(models: list[dict]) -> None:
+    """Save model metadata to config/models.json."""
+    MODELS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with open(MODELS_JSON, "w", encoding="utf-8") as f:
+        json.dump({"models": models}, f, indent=2, ensure_ascii=False)
+
+
+def _derive_id_from_hf_repo(hf_repo: str) -> str:
+    """Derive model id from HuggingFace repo (e.g. org/repo-name -> org-repo-name)."""
+    s = hf_repo.strip().replace("/", "-").lower()
+    s = re.sub(r"[^a-z0-9_\-]", "-", s)
+    return re.sub(r"-+", "-", s).strip("-") or "custom-model"
+
+
 def _get_model_by_id(model_id: str) -> dict | None:
     """Find model by id in config."""
     models = _load_models_config()
@@ -43,7 +60,7 @@ def _get_model_by_id(model_id: str) -> dict | None:
 
 
 def _model_subdir(model_type: str) -> str:
-    return {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd"}.get(model_type, model_type)
+    return {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision"}.get(model_type, model_type)
 
 
 def _get_model_local_dir(model: dict) -> Path | None:
@@ -118,6 +135,59 @@ async def list_models():
         })
     return JSONResponse(
         content={"models": result},
+        headers=_version_header(),
+    )
+
+
+class AddModelRequest(BaseModel):
+    """Request body for adding a custom HuggingFace model."""
+
+    hf_repo: str = Field(..., description="HuggingFace repo, e.g. Qwen/Qwen2.5-0.5B-Instruct")
+    name: str | None = Field(None, description="Display name (default: repo name)")
+    type: str = Field("llm", description="Model type: llm, tts, stt, image, vision")
+    size_bytes: int = Field(0, description="Estimated size in bytes (for display)")
+    capabilities: list[str] = Field(default_factory=list)
+    context_length: int | None = None
+    languages: list[str] = Field(default_factory=lambda: ["zh", "en"])
+    default_params: dict | None = None
+
+
+@router.post("/models", response_class=JSONResponse)
+async def add_model(req: AddModelRequest):
+    """Add a custom model from HuggingFace. Model will appear in list and can be downloaded."""
+    hf_repo = req.hf_repo.strip()
+    if not hf_repo or "/" not in hf_repo:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_HF_REPO",
+                "message": "hf_repo must be in format org/repo-name (e.g. Qwen/Qwen2.5-0.5B-Instruct)",
+            },
+        )
+    model_id = _derive_id_from_hf_repo(hf_repo)
+    models = _load_models_config()
+    if any(m.get("id") == model_id for m in models):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "MODEL_EXISTS", "message": f"model already exists: {model_id}"},
+        )
+    name = req.name or hf_repo.split("/")[-1]
+    new_model = {
+        "id": model_id,
+        "name": name,
+        "type": req.type,
+        "hf_repo": hf_repo,
+        "capabilities": req.capabilities or (["chat", "completion"] if req.type == "llm" else []),
+        "context_length": req.context_length,
+        "languages": req.languages,
+        "default_params": req.default_params or {"temperature": 0.7, "max_tokens": 512},
+        "size_bytes": req.size_bytes,
+        "version": APP_VERSION,
+    }
+    models.append(new_model)
+    _save_models_config(models)
+    return JSONResponse(
+        content={"status": "ok", "model_id": model_id, "model": new_model},
         headers=_version_header(),
     )
 

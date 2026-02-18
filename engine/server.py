@@ -8,11 +8,12 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import APP_VERSION
+from .llms_txt import generate_llms_txt
 from . import runtime
 from .download_api import router as download_router
 from .image_api import router as image_router
@@ -46,6 +47,17 @@ app.add_middleware(
 
 def _version_header():
     return {"X-App-Version": APP_VERSION}
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+@app.get("/llm.txt", response_class=PlainTextResponse)
+async def llms_txt(request: Request):
+    """Serve llms.txt manifest for LLM-friendly API documentation."""
+    base = str(request.base_url).rstrip("/")
+    return PlainTextResponse(
+        content=generate_llms_txt(base),
+        headers={"X-App-Version": APP_VERSION, "Content-Type": "text/plain; charset=utf-8"},
+    )
 
 
 @app.get("/health", response_class=JSONResponse)

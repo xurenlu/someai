@@ -23,9 +23,9 @@ def _version_header():
 
 @router.post("/tts/generate")
 async def tts_generate_endpoint(req: TTSGenerateRequest):
-    audio = await tts_generate(req.text, req.language, req.speaker)
+    audio, media_type = await tts_generate(req.text, req.language, req.speaker)
     return Response(
         content=audio,
-        media_type="audio/wav",
+        media_type=media_type,
         headers={**_version_header(), "Content-Disposition": "inline"},
     )

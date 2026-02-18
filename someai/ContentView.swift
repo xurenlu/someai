@@ -76,7 +76,8 @@ struct ContentView: View {
                         models: $models,
                         isLoading: $isLoading,
                         lastError: $lastError,
-                        engineManager: engineManager
+                        engineManager: engineManager,
+                        selectedSidebarItem: $selectedItem
                     )
                 case .settings:
                     SettingsView()
@@ -201,10 +202,19 @@ struct ModelManagerView: View {
     @Binding var isLoading: Bool
     @Binding var lastError: String?
     var engineManager: EngineManager
+    @Binding var selectedSidebarItem: SidebarItem?
     @State private var portOccupants: [String] = []
     @State private var downloadingId: String? = nil
+    @State private var downloadProgress: (downloaded: Int64, total: Int64)? = nil
     @State private var deletingId: String? = nil
     @State private var modelToDelete: EngineClient.ModelSummary? = nil
+    @State private var showAddModelSheet = false
+    @State private var addModelHfRepo = ""
+    @State private var addModelName = ""
+    @State private var addModelType = "llm"
+    @State private var addModelAdding = false
+    @State private var addModelError: String? = nil
+    @State private var diagnosticsCopied = false
 
     var body: some View {
         List {
@@ -227,7 +237,7 @@ struct ModelManagerView: View {
                 } else if isLoading {
                     ProgressView()
                 } else {
-                    Text("\(String(localized: "model_manager.health")): \(healthStatus)")
+                    Text("\(String(localized: "model_manager.health")): \(engineManager.isRunning ? healthStatus : "—")")
                         .font(.subheadline)
                 }
                 if let err = lastError {
@@ -259,10 +269,21 @@ struct ModelManagerView: View {
                         Button {
                             copyDiagnostics()
                         } label: {
-                            Label(String(localized: "model_manager.copy_diagnostics"), systemImage: "doc.on.doc")
+                            if diagnosticsCopied {
+                                Label(String(localized: "model_manager.copied"), systemImage: "checkmark.circle.fill")
+                            } else {
+                                Label(String(localized: "model_manager.copy_diagnostics"), systemImage: "doc.on.doc")
+                            }
                         }
                         .buttonStyle(.bordered)
                         .disabled(isLoading)
+                        .animation(.easeInOut(duration: 0.2), value: diagnosticsCopied)
+                        Button {
+                            selectedSidebarItem = .settings
+                        } label: {
+                            Label(String(localized: "model_manager.open_settings"), systemImage: "gearshape")
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
             } header: {
@@ -324,12 +345,20 @@ struct ModelManagerView: View {
                                     Task { await downloadModel(model.id) }
                                 } label: {
                                     if downloadingId == model.id {
-                                        HStack(spacing: 4) {
-                                            ProgressView()
-                                                .scaleEffect(0.7)
-                                            if let sz = model.size_bytes, sz > 0 {
-                                                Text(String(format: String(localized: "model_manager.downloading_size"), formatBytes(sz)))
+                                        HStack(spacing: 6) {
+                                            if let prog = downloadProgress, prog.total > 0 {
+                                                ProgressView(value: Double(prog.downloaded), total: Double(prog.total))
+                                                    .frame(width: 80)
+                                                Text("\(formatBytes(Int(prog.downloaded)))/\(formatBytes(Int(prog.total)))")
                                                     .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            } else {
+                                                ProgressView()
+                                                    .scaleEffect(0.7)
+                                                if let sz = model.size_bytes, sz > 0 {
+                                                    Text(String(format: String(localized: "model_manager.downloading_size"), formatBytes(sz)))
+                                                        .font(.caption)
+                                                }
                                             }
                                         }
                                     } else {
@@ -355,6 +384,12 @@ struct ModelManagerView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 8) {
+                    Button {
+                        showAddModelSheet = true
+                    } label: {
+                        Label(String(localized: "model_manager.add_model"), systemImage: "plus.circle")
+                    }
+                    .help(String(localized: "model_manager.add_model_title"))
                     if let root = engineManager.projectRoot {
                         Button {
                             openInFinder(path: root.appendingPathComponent("models").path)
@@ -371,6 +406,22 @@ struct ModelManagerView: View {
                     .disabled(isLoading)
                 }
             }
+        }
+        .sheet(isPresented: $showAddModelSheet, onDismiss: {
+            addModelHfRepo = ""
+            addModelName = ""
+            addModelType = "llm"
+            addModelError = nil
+            Task { await refreshAsync() }
+        }) {
+            AddModelSheet(
+                hfRepo: $addModelHfRepo,
+                name: $addModelName,
+                type: $addModelType,
+                isAdding: $addModelAdding,
+                error: $addModelError,
+                onAdd: { Task { await addModelSubmit() } }
+            )
         }
         .refreshable {
             await refreshAsync()
@@ -411,6 +462,11 @@ struct ModelManagerView: View {
         let text = engineManager.buildDiagnostics()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        diagnosticsCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            diagnosticsCopied = false
+        }
     }
 
     private func deleteModel(_ modelId: String) async {
@@ -442,10 +498,29 @@ struct ModelManagerView: View {
 
     private func downloadModel(_ modelId: String) async {
         downloadingId = modelId
+        downloadProgress = nil
         lastError = nil
+        var completedError: String? = nil
         do {
-            _ = try await EngineClient.downloadModel(modelId: modelId)
-            await refreshAsync()
+            for try await prog in EngineClient.downloadModelStreaming(modelId: modelId) {
+                if prog.done {
+                    completedError = prog.error
+                    break
+                }
+                if prog.total > 0 || prog.downloaded > 0 {
+                    await MainActor.run {
+                        downloadProgress = (prog.downloaded, max(prog.total, prog.downloaded))
+                    }
+                }
+            }
+            await MainActor.run {
+                if let err = completedError {
+                    lastError = err
+                }
+            }
+            if completedError == nil {
+                await refreshAsync()
+            }
         } catch {
             await MainActor.run {
                 lastError = error.localizedDescription
@@ -453,6 +528,40 @@ struct ModelManagerView: View {
         }
         await MainActor.run {
             downloadingId = nil
+            downloadProgress = nil
+        }
+    }
+
+    private func addModelSubmit() async {
+        let repo = addModelHfRepo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !repo.isEmpty, repo.contains("/") else {
+            await MainActor.run {
+                addModelError = String(localized: "model_manager.add_model_invalid_repo")
+            }
+            return
+        }
+        addModelAdding = true
+        addModelError = nil
+        do {
+            _ = try await EngineClient.addModel(
+                hfRepo: repo,
+                name: addModelName.isEmpty ? nil : addModelName,
+                type: addModelType
+            )
+            await MainActor.run {
+                showAddModelSheet = false
+                addModelHfRepo = ""
+                addModelName = ""
+                addModelType = "llm"
+            }
+            await refreshAsync()
+        } catch {
+            await MainActor.run {
+                addModelError = error.localizedDescription
+            }
+        }
+        await MainActor.run {
+            addModelAdding = false
         }
     }
 
@@ -492,6 +601,77 @@ struct ModelManagerView: View {
         }
         await MainActor.run {
             isLoading = false
+        }
+    }
+}
+
+// MARK: - Add Model Sheet
+
+struct AddModelSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var hfRepo: String
+    @Binding var name: String
+    @Binding var type: String
+    @Binding var isAdding: Bool
+    @Binding var error: String?
+    var onAdd: () -> Void
+
+    private let modelTypes = ["llm", "tts", "stt", "image", "vision"]
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(String(localized: "model_manager.add_model_title"))
+                .font(.title2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "model_manager.add_model_hf_repo"))
+                    .font(.headline)
+                TextField(String(localized: "model_manager.add_model_hf_repo_placeholder"), text: $hfRepo)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "model_manager.add_model_name"))
+                    .font(.headline)
+                TextField("", text: $name)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "model_manager.add_model_type"))
+                    .font(.headline)
+                Picker("", selection: $type) {
+                    ForEach(modelTypes, id: \.self) { t in
+                        Text(t).tag(t)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if let err = error {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(minWidth: 400, minHeight: 320)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(String(localized: "model_manager.cancel")) {
+                    dismiss()
+                }
+                .disabled(isAdding)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(String(localized: "model_manager.add_model_add")) {
+                    onAdd()
+                }
+                .disabled(isAdding || hfRepo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
     }
 }

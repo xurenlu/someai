@@ -194,6 +194,107 @@ struct EngineClient {
         throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Download failed"])
     }
 
+    /// Progress update from streaming download.
+    struct DownloadProgress: Sendable {
+        let downloaded: Int64
+        let total: Int64
+        let done: Bool
+        let error: String?
+        let localDir: String?
+    }
+
+    /// Stream model download with progress via SSE. Supports resume on retry.
+    static func downloadModelStreaming(modelId: String) -> AsyncThrowingStream<DownloadProgress, Error> {
+        var components = URLComponents(url: baseURL.appendingPathComponent("models").appendingPathComponent("download").appendingPathComponent("stream"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "model_id", value: modelId)]
+        guard let url = components.url else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+            }
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 3600
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+                    guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                        continuation.finish(throwing: NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Download failed"]))
+                        return
+                    }
+                    var buffer = ""
+                    var finished = false
+                    for try await byte in bytes {
+                        if finished { break }
+                        buffer.append(Character(Unicode.Scalar(byte)))
+                        if buffer.hasSuffix("\n\n") {
+                            for line in buffer.components(separatedBy: "\n") {
+                                guard line.hasPrefix("data: ") else { continue }
+                                let jsonStr = String(line.dropFirst(6))
+                                guard let data = jsonStr.data(using: .utf8),
+                                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                                let downloaded = (obj["downloaded"] as? NSNumber)?.int64Value ?? 0
+                                let total = (obj["total"] as? NSNumber)?.int64Value ?? 0
+                                let done = (obj["done"] as? Bool) ?? false
+                                let error = obj["error"] as? String
+                                let localDir = obj["local_dir"] as? String
+                                continuation.yield(DownloadProgress(downloaded: downloaded, total: total, done: done, error: error, localDir: localDir))
+                                if done {
+                                    finished = true
+                                    break
+                                }
+                            }
+                            buffer = ""
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    struct AddModelRequest: Encodable {
+        let hf_repo: String
+        let name: String?
+        let type: String
+        let size_bytes: Int
+    }
+
+    struct AddModelResponse: Codable {
+        let status: String
+        let model_id: String
+    }
+
+    /// Add custom model from HuggingFace. Model appears in list and can be downloaded.
+    static func addModel(hfRepo: String, name: String? = nil, type: String = "llm", sizeBytes: Int = 0) async throws -> AddModelResponse {
+        let url = baseURL.appendingPathComponent("models")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(AddModelRequest(
+            hf_repo: hfRepo,
+            name: name?.isEmpty == true ? nil : name,
+            type: type,
+            size_bytes: sizeBytes
+        ))
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        if http.statusCode >= 200, http.statusCode < 300 {
+            return try JSONDecoder().decode(AddModelResponse.self, from: data)
+        }
+        if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+           let msg = errBody.error?.message {
+            throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Add model failed"])
+    }
+
     /// Delete local model files. Allows re-download.
     static func deleteModel(modelId: String) async throws {
         let url = baseURL.appendingPathComponent("models").appendingPathComponent(modelId)
