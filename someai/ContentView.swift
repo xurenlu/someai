@@ -9,10 +9,9 @@ import SwiftUI
 import AppKit
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case chat
-    case tts
-    case voiceChat
-    case image
+    case chatHub
+    case createHub
+    case historyHub
     case modelManager
     case settings
 
@@ -20,10 +19,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .chat: return "sidebar.chat"
-        case .tts: return "sidebar.tts"
-        case .voiceChat: return "sidebar.voice_chat"
-        case .image: return "sidebar.image"
+        case .chatHub: return "sidebar.chat_hub"
+        case .createHub: return "sidebar.create_hub"
+        case .historyHub: return "sidebar.history_hub"
         case .modelManager: return "sidebar.model_manager"
         case .settings: return "sidebar.settings"
         }
@@ -31,10 +29,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .chat: return "bubble.left.and.bubble.right"
-        case .tts: return "speaker.wave.2"
-        case .voiceChat: return "mic.fill"
-        case .image: return "photo"
+        case .chatHub: return "bubble.left.and.bubble.right"
+        case .createHub: return "plus.circle"
+        case .historyHub: return "clock.arrow.circlepath"
         case .modelManager: return "cpu"
         case .settings: return "gearshape"
         }
@@ -43,7 +40,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @Environment(EngineManager.self) var engineManager
-    @State private var selectedItem: SidebarItem? = .modelManager
+    @State private var selectedItem: SidebarItem? = .chatHub
     @State private var healthStatus: String = "—"
     @State private var models: [EngineClient.ModelSummary] = []
     @State private var isLoading = false
@@ -62,14 +59,12 @@ struct ContentView: View {
         } detail: {
             Group {
                 switch selectedItem {
-                case .chat:
-                    ChatView()
-                case .tts:
-                    TTSView()
-                case .voiceChat:
-                    VoiceChatView()
-                case .image:
-                    ImageView()
+                case .chatHub:
+                    ChatHubView()
+                case .createHub:
+                    CreateHubView()
+                case .historyHub:
+                    HistoryHubView()
                 case .modelManager:
                     ModelManagerView(
                         healthStatus: $healthStatus,
@@ -82,7 +77,7 @@ struct ContentView: View {
                 case .settings:
                     SettingsView()
                 case .none:
-                    Text("Select an item")
+                    Text("history.select_item")
                 }
             }
             .onAppear {
@@ -290,89 +285,18 @@ struct ModelManagerView: View {
                 Text(String(localized: "model_manager.status_header"))
             }
 
-            Section {
-                ForEach(models, id: \.id) { model in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(model.name)
-                                .font(.headline)
-                            HStack(spacing: 6) {
-                                Text(model.type)
-                                    .font(.caption)
-                                    .padding(2)
-                                    .background(Color.blue.opacity(0.2))
-                                    .cornerRadius(4)
-                                Text(model.status)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if let size = model.actual_size_bytes ?? model.size_bytes, size > 0 {
-                                    Text(formatBytes(size))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if let types = model.file_types, !types.isEmpty {
-                                    Text(types.joined(separator: " "))
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        Spacer()
-                        HStack(spacing: 6) {
-                            if model.status == "installed", let dir = model.local_dir {
-                                Button {
-                                    openInFinder(path: dir)
-                                } label: {
-                                    Label(String(localized: "model_manager.open_in_finder"), systemImage: "folder")
-                                }
-                                .buttonStyle(.bordered)
-                                Button(role: .destructive) {
-                                    modelToDelete = model
-                                } label: {
-                                    if deletingId == model.id {
-                                        ProgressView()
-                                            .scaleEffect(0.7)
-                                    } else {
-                                        Label(String(localized: "model_manager.delete"), systemImage: "trash")
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(deletingId != nil)
-                            }
-                            if model.status == "not_downloaded" {
-                                Button {
-                                    Task { await downloadModel(model.id) }
-                                } label: {
-                                    if downloadingId == model.id {
-                                        HStack(spacing: 6) {
-                                            if let prog = downloadProgress, prog.total > 0 {
-                                                ProgressView(value: Double(prog.downloaded), total: Double(prog.total))
-                                                    .frame(width: 80)
-                                                Text("\(formatBytes(Int(prog.downloaded)))/\(formatBytes(Int(prog.total)))")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            } else {
-                                                ProgressView()
-                                                    .scaleEffect(0.7)
-                                                if let sz = model.size_bytes, sz > 0 {
-                                                    Text(String(format: String(localized: "model_manager.downloading_size"), formatBytes(sz)))
-                                                        .font(.caption)
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        Label(String(localized: "model_manager.download"), systemImage: "arrow.down.circle")
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(downloadingId != nil)
-                            }
-                        }
+            ForEach(groupedModels, id: \.type) { group in
+                Section {
+                    ForEach(group.models, id: \.id) { model in
+                        modelRow(model)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        Text(localizedModelType(group.type))
+                        Text("(\(group.models.count))")
+                            .foregroundStyle(.secondary)
                     }
                 }
-            } header: {
-                Text(String(localized: "model_manager.models_header"))
             }
         }
         .navigationTitle(String(localized: "sidebar.model_manager"))
@@ -441,6 +365,115 @@ struct ModelManagerView: View {
         } message: {
             if let m = modelToDelete {
                 Text(String(format: String(localized: "model_manager.delete_confirm_message"), m.name))
+            }
+        }
+    }
+
+    private func localizedModelType(_ type: String) -> String {
+        switch type.lowercased() {
+        case "llm": return String(localized: "model_manager.type.llm")
+        case "tts": return String(localized: "model_manager.type.tts")
+        case "stt": return String(localized: "model_manager.type.stt")
+        case "image": return String(localized: "model_manager.type.image")
+        case "vision": return String(localized: "model_manager.type.vision")
+        case "ocr": return String(localized: "model_manager.type.ocr")
+        case "—", "": return String(localized: "model_manager.type.other")
+        default: return type
+        }
+    }
+
+    private var groupedModels: [(type: String, models: [EngineClient.ModelSummary])] {
+        let grouped = Dictionary(grouping: models) { model in
+            model.type.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : model.type
+        }
+        return grouped.keys
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            .map { key in
+                let sortedModels = (grouped[key] ?? []).sorted {
+                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+                return (type: key, models: sortedModels)
+            }
+    }
+
+    @ViewBuilder
+    private func modelRow(_ model: EngineClient.ModelSummary) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.name)
+                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(model.type)
+                        .font(.caption)
+                        .padding(2)
+                        .background(Color.blue.opacity(0.2))
+                        .cornerRadius(4)
+                    Text(model.status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let size = model.actual_size_bytes ?? model.size_bytes, size > 0 {
+                        Text(formatBytes(size))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let types = model.file_types, !types.isEmpty {
+                        Text(types.joined(separator: " "))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+            Spacer()
+            HStack(spacing: 6) {
+                if model.status == "installed", let dir = model.local_dir {
+                    Button {
+                        openInFinder(path: dir)
+                    } label: {
+                        Label(String(localized: "model_manager.open_in_finder"), systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        modelToDelete = model
+                    } label: {
+                        if deletingId == model.id {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else {
+                            Label(String(localized: "model_manager.delete"), systemImage: "trash")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(deletingId != nil)
+                }
+                if model.status == "not_downloaded" {
+                    Button {
+                        Task { await downloadModel(model.id) }
+                    } label: {
+                        if downloadingId == model.id {
+                            HStack(spacing: 6) {
+                                if let prog = downloadProgress, prog.total > 0 {
+                                    ProgressView(value: Double(prog.downloaded), total: Double(prog.total))
+                                        .frame(width: 80)
+                                    Text("\(formatBytes(Int(prog.downloaded)))/\(formatBytes(Int(prog.total)))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                    if let sz = model.size_bytes, sz > 0 {
+                                        Text(String(format: String(localized: "model_manager.downloading_size"), formatBytes(sz)))
+                                            .font(.caption)
+                                    }
+                                }
+                            }
+                        } else {
+                            Label(String(localized: "model_manager.download"), systemImage: "arrow.down.circle")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(downloadingId != nil)
+                }
             }
         }
     }
@@ -616,7 +649,7 @@ struct AddModelSheet: View {
     @Binding var error: String?
     var onAdd: () -> Void
 
-    private let modelTypes = ["llm", "tts", "stt", "image", "vision"]
+    private let modelTypes = ["llm", "tts", "stt", "image", "vision", "ocr"]
 
     var body: some View {
         VStack(spacing: 20) {

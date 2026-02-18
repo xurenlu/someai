@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVFoundation
+import AppKit
 
 enum MicPermissionStatus {
     case granted
@@ -54,6 +55,9 @@ struct SettingsView: View {
     @AppStorage("engine_use_china_mirror") private var useChinaMirror = false
     @State private var micObserver = MicPermissionObserver()
     @State private var enginePortText: String = "\(EngineConfig.shared.enginePort)"
+    @State private var memoryLimitText: String = ""
+    @State private var modelIdleTimeoutText: String = "15"
+    @State private var outputDirPath: String = ""
     @State private var isSyncing = false
     @State private var syncMessage: String?
     @State private var syncFailed = false
@@ -64,7 +68,7 @@ struct SettingsView: View {
                 HStack {
                     Text("settings.version")
                     Spacer()
-                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0-rc9")")
+                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0")")
                         .foregroundStyle(.secondary)
                 }
             } header: {
@@ -84,6 +88,8 @@ struct SettingsView: View {
                 .onAppear {
                     enginePortText = "\(EngineConfig.shared.enginePort)"
                     memoryLimitText = EngineConfig.shared.memoryLimitMB > 0 ? "\(EngineConfig.shared.memoryLimitMB)" : ""
+                    modelIdleTimeoutText = "\(EngineConfig.shared.modelIdleTimeoutMinutes)"
+                    outputDirPath = EngineConfig.shared.outputDirectory.path
                 }
                 HStack {
                     Text("settings.memory_limit_mb")
@@ -93,6 +99,15 @@ struct SettingsView: View {
                         .frame(width: 80)
                         .multilineTextAlignment(.trailing)
                         .onSubmit { applyMemoryLimit() }
+                }
+                HStack {
+                    Text("settings.model_idle_timeout")
+                    Spacer()
+                    TextField(String(localized: "settings.model_idle_timeout_placeholder"), text: $modelIdleTimeoutText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyModelIdleTimeout() }
                 }
                 Toggle("settings.use_china_mirror", isOn: $useChinaMirror)
                 if isSyncing {
@@ -123,7 +138,27 @@ struct SettingsView: View {
             } header: {
                 Text("settings.engine")
             } footer: {
-                Text("settings.engine_port_footer")
+                Text("settings.engine_footer")
+            }
+
+            Section {
+                HStack {
+                    Text("settings.output_directory")
+                    Spacer()
+                    TextField(String(localized: "settings.output_directory_placeholder"), text: $outputDirPath)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 200)
+                        .onSubmit { applyOutputDirectory() }
+                    Button {
+                        pickOutputDirectory()
+                    } label: {
+                        Label(String(localized: "settings.browse"), systemImage: "folder")
+                    }
+                }
+            } header: {
+                Text("settings.output")
+            } footer: {
+                Text("settings.output_footer")
             }
 
             Section {
@@ -198,6 +233,57 @@ struct SettingsView: View {
             }
         } else {
             enginePortText = "\(EngineConfig.shared.enginePort)"
+        }
+    }
+
+    private func applyOutputDirectory() {
+        let trimmed = outputDirPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let path = (trimmed as NSString).expandingTildeInPath
+        EngineConfig.shared.outputDirectory = URL(fileURLWithPath: path)
+        outputDirPath = EngineConfig.shared.outputDirectory.path
+    }
+
+    private func pickOutputDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = EngineConfig.shared.outputDirectory
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                EngineConfig.shared.outputDirectory = url
+                outputDirPath = url.path
+            }
+        }
+    }
+
+    private func applyMemoryLimit() {
+        let trimmed = memoryLimitText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            EngineConfig.shared.memoryLimitMB = 0
+            memoryLimitText = ""
+            EngineManager.shared.stopEngine()
+            return
+        }
+        if let v = Int(trimmed), v > 0 {
+            EngineConfig.shared.memoryLimitMB = v
+            memoryLimitText = "\(v)"
+            EngineManager.shared.stopEngine()
+        } else {
+            memoryLimitText = EngineConfig.shared.memoryLimitMB > 0 ? "\(EngineConfig.shared.memoryLimitMB)" : ""
+        }
+    }
+
+    private func applyModelIdleTimeout() {
+        let trimmed = modelIdleTimeoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let v = Int(trimmed), v >= 1, v <= 1440 {
+            EngineConfig.shared.modelIdleTimeoutMinutes = v
+            modelIdleTimeoutText = "\(v)"
+            EngineManager.shared.stopEngine()
+        } else {
+            modelIdleTimeoutText = "\(EngineConfig.shared.modelIdleTimeoutMinutes)"
         }
     }
 

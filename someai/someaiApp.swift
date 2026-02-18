@@ -12,11 +12,13 @@ import AppKit
 struct someaiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var engineManager = EngineManager.shared
+    @State private var historyStore = GenerationHistoryStore.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(engineManager)
+                .environment(historyStore)
         }
     }
 }

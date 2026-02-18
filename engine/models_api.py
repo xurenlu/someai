@@ -60,7 +60,7 @@ def _get_model_by_id(model_id: str) -> dict | None:
 
 
 def _model_subdir(model_type: str) -> str:
-    return {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision"}.get(model_type, model_type)
+    return {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision", "ocr": "ocr"}.get(model_type, model_type)
 
 
 def _get_model_local_dir(model: dict) -> Path | None:
@@ -144,7 +144,7 @@ class AddModelRequest(BaseModel):
 
     hf_repo: str = Field(..., description="HuggingFace repo, e.g. Qwen/Qwen2.5-0.5B-Instruct")
     name: str | None = Field(None, description="Display name (default: repo name)")
-    type: str = Field("llm", description="Model type: llm, tts, stt, image, vision")
+    type: str = Field("llm", description="Model type: llm, tts, stt, image, vision, ocr")
     size_bytes: int = Field(0, description="Estimated size in bytes (for display)")
     capabilities: list[str] = Field(default_factory=list)
     context_length: int | None = None
@@ -177,7 +177,11 @@ async def add_model(req: AddModelRequest):
         "name": name,
         "type": req.type,
         "hf_repo": hf_repo,
-        "capabilities": req.capabilities or (["chat", "completion"] if req.type == "llm" else []),
+        "capabilities": req.capabilities or (
+            ["chat", "completion"] if req.type == "llm"
+            else ["ocr"] if req.type == "ocr"
+            else []
+        ),
         "context_length": req.context_length,
         "languages": req.languages,
         "default_params": req.default_params or {"temperature": 0.7, "max_tokens": 512},
@@ -198,17 +202,53 @@ async def list_loaded_models():
     import time
     from . import runtime
     from .memory_watchdog import get_current_memory_mb
+    from .model_registry import get_loaded_models
     from .task_queue import queue_size
     uptime = int(time.monotonic() - runtime.engine_start_time) if runtime.engine_start_time else 0
+    loaded = get_loaded_models()  # e.g. ["llm:qwen2.5-1.5b-instruct", "tts:qwen3-tts-12hz-0.6b"]
+    loaded_models = [{"id": x.split(":", 1)[1], "type": x.split(":", 1)[0]} for x in loaded if ":" in x]
     return JSONResponse(
         content={
-            "loaded_models": [],
+            "loaded_models": loaded_models,
+            "loaded_model_ids": loaded,
             "engine": {
                 "queue_size": queue_size(),
                 "uptime_sec": uptime,
                 "memory_mb": round(get_current_memory_mb(), 1),
             },
         },
+        headers=_version_header(),
+    )
+
+
+@router.post("/models/{model_id}/load", response_class=JSONResponse)
+async def load_model(model_id: str):
+    """Preload model into memory. Call before first use to avoid MODEL_NOT_LOADED on generate."""
+    model = _get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MODEL_NOT_FOUND", "message": f"model not found: {model_id}"},
+        )
+    model_type = model.get("type", "llm")
+    if model_type == "llm":
+        from .llm_service import load_model as llm_load
+        ok = llm_load(model_id)
+    elif model_type == "tts":
+        from .tts_service import load_model as tts_load
+        ok = tts_load(model_id)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "LOAD_NOT_SUPPORTED", "message": f"preload not supported for type: {model_type}"},
+        )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "LOAD_FAILED", "message": f"model {model_id} not installed or load failed"},
+        )
+    return JSONResponse(
+        content={"status": "ok", "model_id": model_id, "message": "loaded"},
         headers=_version_header(),
     )
 

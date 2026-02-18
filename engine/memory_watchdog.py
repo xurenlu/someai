@@ -1,6 +1,7 @@
 """
 Memory watchdog - placeholder for M5.
 Monitors process memory and can trigger model unload when threshold exceeded.
+Supports setting process memory limit via RLIMIT_AS (Unix).
 """
 from __future__ import annotations
 
@@ -8,6 +9,18 @@ import os
 import resource
 
 _high_water_mb = 0
+
+
+def set_memory_limit(mb: int) -> bool:
+    """Set process memory limit (RLIMIT_AS). Returns True if successful."""
+    if mb <= 0:
+        return False
+    try:
+        limit_bytes = mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+        return True
+    except (ValueError, OSError):
+        return False
 
 
 def get_current_memory_mb() -> float:

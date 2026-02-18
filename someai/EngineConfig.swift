@@ -15,6 +15,8 @@ final class EngineConfig {
     private let portKey = "engine_port"
     private let useChinaMirrorKey = "engine_use_china_mirror"
     private let memoryLimitMBKey = "engine_memory_limit_mb"
+    private let modelIdleTimeoutMinutesKey = "engine_model_idle_timeout_minutes"
+    private let outputDirectoryKey = "output_directory"
 
     /// 有效端口范围
     private let minPort = 1024
@@ -48,10 +50,35 @@ final class EngineConfig {
         }
     }
 
+    /// 模型空闲超时（分钟），超时后自动卸载以释放内存。默认 15 分钟，修改后需重启引擎
+    var modelIdleTimeoutMinutes: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: modelIdleTimeoutMinutesKey)
+            return v >= 1 ? v : 15
+        }
+        set {
+            UserDefaults.standard.set(max(1, min(1440, newValue)), forKey: modelIdleTimeoutMinutesKey)
+        }
+    }
+
     /// 使用中国 PyPI 镜像（清华源）加速 uv sync 依赖下载
     var useChinaMirror: Bool {
         get { UserDefaults.standard.bool(forKey: useChinaMirrorKey) }
         set { UserDefaults.standard.set(newValue, forKey: useChinaMirrorKey) }
+    }
+
+    /// 生成文件输出目录（TTS 音频、图片等），默认 ~/Downloads/someai
+    var outputDirectory: URL {
+        get {
+            if let path = UserDefaults.standard.string(forKey: outputDirectoryKey), !path.isEmpty {
+                return URL(fileURLWithPath: path)
+            }
+            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("someai", isDirectory: true)
+        }
+        set {
+            UserDefaults.standard.set(newValue.path, forKey: outputDirectoryKey)
+        }
     }
 
     /// 中国镜像 URL（清华源）

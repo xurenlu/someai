@@ -89,6 +89,14 @@ final class EngineManager {
         let process = Process()
         process.currentDirectoryURL = projectRoot
 
+        var env = ProcessInfo.processInfo.environment
+        let memoryLimit = EngineConfig.shared.memoryLimitMB
+        if memoryLimit > 0 {
+            env["ENGINE_MEMORY_LIMIT_MB"] = "\(memoryLimit)"
+        }
+        env["ENGINE_IDLE_TIMEOUT_MINUTES"] = "\(EngineConfig.shared.modelIdleTimeoutMinutes)"
+        process.environment = env
+
         // 优先使用已存在的 .venv/bin/python，避免 uv run 每次启动都执行 sync；无 venv 时用 uv run
         if let pythonPath = Self.findPythonPath(projectRoot: projectRoot) {
             process.executableURL = URL(fileURLWithPath: pythonPath)

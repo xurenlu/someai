@@ -169,6 +169,16 @@ struct EngineClient {
     struct ErrorDetail: Codable {
         let code: String?
         let message: String?
+        let model_id: String?
+    }
+
+    /// If error is MODEL_NOT_LOADED, returns the model_id for preload. Otherwise nil.
+    static func modelIdForPreload(from error: Error) -> String? {
+        guard let ns = error as NSError?,
+              ns.domain == "EngineClient",
+              let code = ns.userInfo["error_code"] as? String,
+              code == modelNotLoadedCode else { return nil }
+        return ns.userInfo["model_id"] as? String
     }
 
     /// Download model via engine. Uses 1 hour timeout for large models.
@@ -313,5 +323,323 @@ struct EngineClient {
             throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
         }
         throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Delete failed"])
+    }
+
+    // MARK: - Generation APIs (unified, with retry for network errors)
+
+    static let generateMaxRetries = 2
+    static let generateRetryDelay: UInt64 = 1_000_000_000  // 1s
+
+    /// Returns true if error is retriable (network/connection).
+    private static func isRetriable(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+                return true
+            default:
+                return urlError.code.rawValue == -1024
+            }
+        }
+        return false
+    }
+
+    struct LLMGenerateRequest: Encodable {
+        let prompt: String
+        let temperature: Double
+        let max_tokens: Int
+        let model_id: String?
+    }
+
+    struct LLMGenerateResponse: Decodable {
+        let text: String
+    }
+
+    /// Error code when model was unloaded and needs preload
+    static let modelNotLoadedCode = "MODEL_NOT_LOADED"
+
+    /// Coordinates preload so concurrent requests for same model trigger only one load.
+    private static let preloadCoordinator = ModelPreloadCoordinator()
+
+    private actor ModelPreloadCoordinator {
+        private var inProgress: [String: Task<Void, Error>] = [:]
+
+        func preload(modelId: String) async throws {
+            if let existing = inProgress[modelId] {
+                try await existing.value
+                return
+            }
+            let task = Task {
+                try await EngineClient.preloadModel(modelId: modelId)
+            }
+            inProgress[modelId] = task
+            defer { inProgress.removeValue(forKey: modelId) }
+            try await task.value
+        }
+    }
+
+    static func preloadModel(modelId: String) async throws {
+        let url = baseURL.appendingPathComponent("models").appendingPathComponent(modelId).appendingPathComponent("load")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 300  // 5 min for large models
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        if (200..<300).contains(http.statusCode) { return }
+        if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+           let msg = errBody.error?.message {
+            throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Preload failed"])
+    }
+
+    static func generateChat(prompt: String, temperature: Double = 0.7, maxTokens: Int = 512, modelId: String? = nil) async throws -> String {
+        let url = baseURL.appendingPathComponent("llm").appendingPathComponent("generate")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(LLMGenerateRequest(prompt: prompt, temperature: temperature, max_tokens: maxTokens, model_id: modelId))
+
+        var lastError: Error?
+        var hasPreloadRetried = false
+        for attempt in 1...(generateMaxRetries + 1) {
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                }
+                if (200..<300).contains(http.statusCode) {
+                    let decoded = try JSONDecoder().decode(LLMGenerateResponse.self, from: data)
+                    return decoded.text
+                }
+                if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+                   let detail = errBody.error {
+                    var info: [String: Any] = [NSLocalizedDescriptionKey: detail.message ?? "LLM error"]
+                    if detail.code == modelNotLoadedCode {
+                        info["error_code"] = modelNotLoadedCode
+                        if let mid = detail.model_id { info["model_id"] = mid }
+                    }
+                    throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: info)
+                }
+                throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "LLM error"])
+            } catch {
+                lastError = error
+                if let mid = EngineClient.modelIdForPreload(from: error), !hasPreloadRetried {
+                    hasPreloadRetried = true
+                    try await preloadCoordinator.preload(modelId: mid)
+                    continue
+                }
+                if isRetriable(error), attempt <= generateMaxRetries {
+                    try? await Task.sleep(nanoseconds: generateRetryDelay)
+                } else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: userFriendlyError(from: error)
+                    ])
+                }
+            }
+        }
+        throw NSError(domain: "EngineClient", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: userFriendlyError(from: lastError!)
+        ])
+    }
+
+    struct TTSGenerateRequest: Encodable {
+        let text: String
+        let language: String
+        let speaker: String
+        let model_id: String?
+    }
+
+    static func generateTTS(text: String, language: String = "zh", speaker: String = "default", modelId: String? = nil) async throws -> Data {
+        let url = baseURL.appendingPathComponent("tts").appendingPathComponent("generate")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(TTSGenerateRequest(text: text, language: language, speaker: speaker, model_id: modelId))
+
+        var lastError: Error?
+        var hasPreloadRetried = false
+        for attempt in 1...(generateMaxRetries + 1) {
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                }
+                if (200..<300).contains(http.statusCode) {
+                    return data
+                }
+                if let errBody = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+                   let detail = errBody.error {
+                    var info: [String: Any] = [NSLocalizedDescriptionKey: detail.message ?? "TTS error"]
+                    if detail.code == modelNotLoadedCode {
+                        info["error_code"] = modelNotLoadedCode
+                        if let mid = detail.model_id { info["model_id"] = mid }
+                    }
+                    throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: info)
+                }
+                throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "TTS error"])
+            } catch {
+                lastError = error
+                if let mid = EngineClient.modelIdForPreload(from: error), !hasPreloadRetried {
+                    hasPreloadRetried = true
+                    try await preloadCoordinator.preload(modelId: mid)
+                    continue
+                }
+                if isRetriable(error), attempt <= generateMaxRetries {
+                    try? await Task.sleep(nanoseconds: generateRetryDelay)
+                } else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: userFriendlyError(from: error)
+                    ])
+                }
+            }
+        }
+        throw NSError(domain: "EngineClient", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: userFriendlyError(from: lastError!)
+        ])
+    }
+
+    struct ImageGenerateRequest: Encodable {
+        let prompt: String
+        let width: Int
+        let height: Int
+    }
+
+    static func generateImage(prompt: String, width: Int = 512, height: Int = 512) async throws -> Data {
+        let url = baseURL.appendingPathComponent("image").appendingPathComponent("generate")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(ImageGenerateRequest(prompt: prompt, width: width, height: height))
+
+        var lastError: Error?
+        for attempt in 1...(generateMaxRetries + 1) {
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                }
+                if (200..<300).contains(http.statusCode) {
+                    return data
+                }
+                let errMsg = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error?.message ?? "Image error"
+                throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: errMsg])
+            } catch {
+                lastError = error
+                if isRetriable(error), attempt <= generateMaxRetries {
+                    try? await Task.sleep(nanoseconds: generateRetryDelay)
+                } else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: userFriendlyError(from: error)
+                    ])
+                }
+            }
+        }
+        throw NSError(domain: "EngineClient", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: userFriendlyError(from: lastError!)
+        ])
+    }
+
+    struct STTResponse: Decodable {
+        let text: String
+    }
+
+    static func recognizeOCR(imageData: Data, format: String = "text") async throws -> String {
+        let url: URL
+        if format == "json" {
+            var comp = URLComponents(url: baseURL.appendingPathComponent("ocr").appendingPathComponent("recognize"), resolvingAgainstBaseURL: false)!
+            comp.queryItems = [URLQueryItem(name: "format", value: "json")]
+            url = comp.url!
+        } else {
+            url = baseURL.appendingPathComponent("ocr").appendingPathComponent("recognize")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        let boundary = UUID().uuidString
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"image.png\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/png\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
+
+        var lastError: Error?
+        for attempt in 1...(generateMaxRetries + 1) {
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                }
+                if (200..<300).contains(http.statusCode) {
+                    if format == "json" {
+                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let text = json["text"] as? String {
+                            return text
+                        }
+                    }
+                    return String(data: data, encoding: .utf8) ?? ""
+                }
+                let errMsg = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error?.message ?? "OCR error"
+                throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: errMsg])
+            } catch {
+                lastError = error
+                if isRetriable(error), attempt <= generateMaxRetries {
+                    try? await Task.sleep(nanoseconds: generateRetryDelay)
+                } else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: userFriendlyError(from: error)
+                    ])
+                }
+            }
+        }
+        throw NSError(domain: "EngineClient", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: userFriendlyError(from: lastError!)
+        ])
+    }
+
+    static func transcribe(audioData: Data) async throws -> String {
+        let url = baseURL.appendingPathComponent("stt").appendingPathComponent("transcribe")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        let boundary = UUID().uuidString
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
+
+        var lastError: Error?
+        for attempt in 1...(generateMaxRetries + 1) {
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                }
+                if (200..<300).contains(http.statusCode) {
+                    return try JSONDecoder().decode(STTResponse.self, from: data).text
+                }
+                let errMsg = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error?.message ?? "STT error"
+                throw NSError(domain: "EngineClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: errMsg])
+            } catch {
+                lastError = error
+                if isRetriable(error), attempt <= generateMaxRetries {
+                    try? await Task.sleep(nanoseconds: generateRetryDelay)
+                } else {
+                    throw NSError(domain: "EngineClient", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: userFriendlyError(from: error)
+                    ])
+                }
+            }
+        }
+        throw NSError(domain: "EngineClient", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: userFriendlyError(from: lastError!)
+        ])
     }
 }

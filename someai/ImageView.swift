@@ -2,13 +2,15 @@
 //  ImageView.swift
 //  someai
 //
-//  文生图 - prompt 输入、生成、预览、保存
+//  文生图 - prompt 输入、生成、预览、保存到输出目录
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 struct ImageView: View {
+    @Environment(GenerationHistoryStore.self) var historyStore
     @State private var prompt = ""
     @State private var width: Double = 512
     @State private var height: Double = 512
@@ -71,29 +73,48 @@ struct ImageView: View {
         guard !prompt.isEmpty else { return }
         isGenerating = true
         lastError = nil
+
+        let w = Int(width)
+        let h = Int(height)
+        let payload = GenerationPayload(image: .init(prompt: prompt, width: w, height: h))
+        let record = GenerationRecord(kind: .image, status: .running, payload: payload)
+        historyStore.append(record)
+
+        let start = Date()
         Task {
             do {
-                let url = EngineClient.baseURL.appendingPathComponent("image").appendingPathComponent("generate")
-                var req = URLRequest(url: url)
-                req.httpMethod = "POST"
-                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                let body = ImageGenerateRequest(prompt: prompt, width: Int(width), height: Int(height))
-                req.httpBody = try JSONEncoder().encode(body)
-                let (data, _) = try await URLSession.shared.data(for: req)
+                let data = try await EngineClient.generateImage(prompt: prompt, width: w, height: h)
+                let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+
                 if let img = NSImage(data: data) {
+                    let fileURL = historyStore.outputFileURL(recordId: record.id, kind: .image, ext: "png")
+                    if let tiff = img.tiffRepresentation,
+                       let bitmap = NSBitmapImageRep(data: tiff),
+                       let pngData = bitmap.representation(using: .png, properties: [:]) {
+                        try? pngData.write(to: fileURL)
+                    }
+
                     await MainActor.run {
                         generatedImage = img
+                        historyStore.update(
+                            id: record.id,
+                            status: .success,
+                            resultRef: .init(filePath: fileURL.path, mimeType: "image/png"),
+                            durationMs: durationMs
+                        )
                         isGenerating = false
                     }
                 } else {
                     await MainActor.run {
                         lastError = "Invalid image data"
+                        historyStore.update(id: record.id, status: .failed, errorMessage: lastError)
                         isGenerating = false
                     }
                 }
             } catch {
                 await MainActor.run {
                     lastError = error.localizedDescription
+                    historyStore.update(id: record.id, status: .failed, errorMessage: error.localizedDescription)
                     isGenerating = false
                 }
             }
@@ -104,6 +125,7 @@ struct ImageView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "image_output.png"
+        panel.directoryURL = EngineConfig.shared.outputDirectory
         panel.begin { response in
             if response == .OK, let url = panel.url, let tiff = img.tiffRepresentation,
                let bitmap = NSBitmapImageRep(data: tiff),
@@ -112,10 +134,4 @@ struct ImageView: View {
             }
         }
     }
-}
-
-struct ImageGenerateRequest: Codable {
-    let prompt: String
-    let width: Int
-    let height: Int
 }

@@ -2,14 +2,16 @@
 //  TTSView.swift
 //  someai
 //
-//  TTS 页面 - 文本输入、语言选择、speaker、播放、保存
+//  TTS 页面 - 文本输入、语言选择、speaker、播放、保存到输出目录
 //
 
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import AppKit
 
 struct TTSView: View {
+    @Environment(GenerationHistoryStore.self) var historyStore
     @State private var inputText = ""
     @State private var selectedLanguage = "zh"
     @State private var selectedSpeaker = "default"
@@ -63,24 +65,35 @@ struct TTSView: View {
     private func generateAndPlay() {
         guard !inputText.isEmpty else { return }
         isGenerating = true
+
+        let payload = GenerationPayload(tts: .init(text: inputText, language: selectedLanguage, speaker: selectedSpeaker))
+        let record = GenerationRecord(kind: .tts, status: .running, payload: payload)
+        historyStore.append(record)
+
+        let start = Date()
         Task {
             do {
-                let url = EngineClient.baseURL.appendingPathComponent("tts").appendingPathComponent("generate")
-                var req = URLRequest(url: url)
-                req.httpMethod = "POST"
-                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                let body = TTSGenerateRequest(text: inputText, language: selectedLanguage, speaker: selectedSpeaker)
-                req.httpBody = try JSONEncoder().encode(body)
-                let (data, _) = try await URLSession.shared.data(for: req)
+                let data = try await EngineClient.generateTTS(text: inputText, language: selectedLanguage, speaker: selectedSpeaker)
+                let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+
+                let fileURL = historyStore.outputFileURL(recordId: record.id, kind: .tts, ext: "mp3")
+                try? data.write(to: fileURL)
+
                 await MainActor.run {
                     audioData = data
+                    historyStore.update(
+                        id: record.id,
+                        status: .success,
+                        resultRef: .init(filePath: fileURL.path, mimeType: "audio/mpeg"),
+                        durationMs: durationMs
+                    )
                     isGenerating = false
                     playAudio(data: data)
                 }
             } catch {
                 await MainActor.run {
+                    historyStore.update(id: record.id, status: .failed, errorMessage: error.localizedDescription)
                     isGenerating = false
-                    print("[TTSView] generate error: \(error)")
                 }
             }
         }
@@ -105,17 +118,12 @@ struct TTSView: View {
         guard let data = audioData else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.audio]
-        panel.nameFieldStringValue = "tts_output.wav"
+        panel.nameFieldStringValue = "tts_output.mp3"
+        panel.directoryURL = EngineConfig.shared.outputDirectory
         panel.begin { response in
             if response == .OK, let url = panel.url {
                 try? data.write(to: url)
             }
         }
     }
-}
-
-struct TTSGenerateRequest: Codable {
-    let text: String
-    let language: String
-    let speaker: String
 }

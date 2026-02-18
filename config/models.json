@@ -167,6 +167,17 @@
       "size_bytes": 400000000,
       "version": "1.0.0-rc1",
       "updated_at": "2026-02-18T10:00:00Z"
+    },
+    {
+      "id": "trocr-base-printed",
+      "name": "TrOCR-Base-Printed (Microsoft)",
+      "type": "ocr",
+      "family": "trocr",
+      "capabilities": ["ocr"],
+      "languages": ["en"],
+      "size_bytes": 330000000,
+      "version": "1.0.0-rc1",
+      "updated_at": "2026-02-18T10:00:00Z"
     }
   ]
 }

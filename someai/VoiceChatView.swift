@@ -2,14 +2,16 @@
 //  VoiceChatView.swift
 //  someai
 //
-//  语音聊天 - 录音 -> STT -> LLM -> TTS -> 播放
+//  语音聊天 - 录音 -> STT -> LLM -> TTS -> 播放，结果保存到输出目录
 //
 
 import SwiftUI
 import AVFoundation
+import AppKit
 
 struct VoiceChatView: View {
     @Environment(EngineManager.self) var engineManager
+    @Environment(GenerationHistoryStore.self) var historyStore
     @State private var isRecording = false
     @State private var isProcessing = false
     @State private var transcript = ""
@@ -87,7 +89,9 @@ struct VoiceChatView: View {
     }
 
     private func startRecording() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice_\(UUID().uuidString).wav")
+        let outputDir = EngineConfig.shared.outputDirectory.appendingPathComponent("voice_chat", isDirectory: true)
+        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let url = outputDir.appendingPathComponent("voice_\(UUID().uuidString).wav")
         recordingURL = url
         do {
             let engine = AVAudioEngine()
@@ -121,65 +125,67 @@ struct VoiceChatView: View {
     private func processVoiceInput(url: URL) {
         isProcessing = true
         lastError = nil
+
+        let payload = GenerationPayload(voiceChat: .init(
+            userText: "",
+            assistantText: "",
+            llmPrompt: "",
+            llmTemperature: 0.7,
+            llmMaxTokens: 512,
+            ttsText: "",
+            ttsLanguage: "zh",
+            ttsSpeaker: "default"
+        ))
+        let record = GenerationRecord(kind: .voiceChat, status: .running, payload: payload)
+        historyStore.append(record)
+
+        let start = Date()
         Task {
             do {
-                let text = try await transcribe(url: url)
+                let data = try Data(contentsOf: url)
+                let text = try await EngineClient.transcribe(audioData: data)
                 await MainActor.run { transcript = text }
-                let llmText = try await generateLLM(prompt: text)
+
+                let llmText = try await EngineClient.generateChat(prompt: text, temperature: 0.7, maxTokens: 512)
                 await MainActor.run { responseText = llmText }
-                let audioData = try await generateTTS(text: llmText)
+
+                let audioData = try await EngineClient.generateTTS(text: llmText, language: "zh", speaker: "default")
+
+                let fileURL = historyStore.outputFileURL(recordId: record.id, kind: .voiceChat, ext: "mp3")
+                try? audioData.write(to: fileURL)
+
+                let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+                let updatedPayload = GenerationPayload(voiceChat: .init(
+                    userText: text,
+                    assistantText: llmText,
+                    llmPrompt: text,
+                    llmTemperature: 0.7,
+                    llmMaxTokens: 512,
+                    ttsText: llmText,
+                    ttsLanguage: "zh",
+                    ttsSpeaker: "default"
+                ))
+
                 await MainActor.run {
                     conversationLog.append((user: text, assistant: llmText))
+                    historyStore.update(
+                        id: record.id,
+                        status: .success,
+                        resultRef: .init(filePath: fileURL.path, mimeType: "audio/mpeg"),
+                        durationMs: durationMs,
+                        payload: updatedPayload
+                    )
                     playAudio(data: audioData)
                     isProcessing = false
                 }
             } catch {
                 await MainActor.run {
                     lastError = error.localizedDescription
+                    historyStore.update(id: record.id, status: .failed, errorMessage: error.localizedDescription)
                     isProcessing = false
                 }
             }
         }
-    }
-
-    private func transcribe(url: URL) async throws -> String {
-        let data = try Data(contentsOf: url)
-        let endpoint = EngineClient.baseURL.appendingPathComponent("stt").appendingPathComponent("transcribe")
-        var req = URLRequest(url: endpoint)
-        req.httpMethod = "POST"
-        let boundary = UUID().uuidString
-        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-        body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        req.httpBody = body
-        let (respData, _) = try await URLSession.shared.data(for: req)
-        let decoded = try JSONDecoder().decode(STTResponse.self, from: respData)
-        return decoded.text
-    }
-
-    private func generateLLM(prompt: String) async throws -> String {
-        let url = EngineClient.baseURL.appendingPathComponent("llm").appendingPathComponent("generate")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(LLMGenerateRequest(prompt: prompt, temperature: 0.7, max_tokens: 512))
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let resp = try JSONDecoder().decode(LLMGenerateResponse.self, from: data)
-        return resp.text
-    }
-
-    private func generateTTS(text: String) async throws -> Data {
-        let url = EngineClient.baseURL.appendingPathComponent("tts").appendingPathComponent("generate")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(TTSGenerateRequest(text: text, language: "zh", speaker: "default"))
-        let (data, _) = try await URLSession.shared.data(for: req)
-        return data
     }
 
     private func playAudio(data: Data) {
@@ -190,8 +196,4 @@ struct VoiceChatView: View {
             lastError = error.localizedDescription
         }
     }
-}
-
-struct STTResponse: Codable {
-    let text: String
 }

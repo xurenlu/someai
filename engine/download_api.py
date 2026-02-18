@@ -32,6 +32,7 @@ HF_REPOS = {
     "vtp-large-f16d64": "MiniMaxAI/VTP-Large-f16d64",
     "siglip-base-patch16-224": "google/siglip-base-patch16-224",
     "siglip-base-patch16-384": "google/siglip-base-patch16-384",
+    "trocr-base-printed": "microsoft/trocr-base-printed",
 }
 
 def _version_header():
@@ -102,7 +103,7 @@ async def download_model(req: DownloadRequest):
         )
     models_dir = Path(__file__).resolve().parent.parent / "models"
     model_type = model.get("type", "llm")
-    subdir = {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision"}.get(model_type, model_type)
+    subdir = {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision", "ocr": "ocr"}.get(model_type, model_type)
     local_dir = models_dir / subdir / req.model_id
     local_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -151,7 +152,7 @@ async def download_model_stream(
         )
     models_dir = Path(__file__).resolve().parent.parent / "models"
     model_type = model.get("type", "llm")
-    subdir = {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision"}.get(model_type, model_type)
+    subdir = {"llm": "llm", "tts": "tts", "stt": "stt", "image": "sd", "vision": "vision", "ocr": "ocr"}.get(model_type, model_type)
     local_dir = models_dir / subdir / model_id
     local_dir.mkdir(parents=True, exist_ok=True)
 
