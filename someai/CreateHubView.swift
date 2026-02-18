@@ -41,16 +41,21 @@ struct CreateHubView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        HSplitView {
             List(selection: $selectedTool) {
                 ForEach(CreateTool.allCases) { tool in
-                    NavigationLink(value: tool) {
-                        Label(String(localized: String.LocalizationValue(tool.title)), systemImage: tool.icon)
+                    HStack(spacing: 6) {
+                        Image(systemName: tool.icon)
+                            .frame(width: 20)
+                        Text(String(localized: String.LocalizationValue(tool.title)))
                     }
+                    .tag(tool)
+                    .padding(.vertical, 2)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-        } detail: {
+            .listStyle(.sidebar)
+            .frame(minWidth: 140, idealWidth: 160, maxWidth: 200)
+
             Group {
                 switch selectedTool {
                 case .chat:

@@ -32,25 +32,30 @@ struct ChatHubView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        HSplitView {
             List(selection: $selectedItem) {
                 ForEach(ChatHubItem.allCases) { item in
-                    NavigationLink(value: item) {
-                        Label(String(localized: String.LocalizationValue(item.title)), systemImage: item.icon)
+                    HStack(spacing: 6) {
+                        Image(systemName: item.icon)
+                            .frame(width: 20)
+                        Text(String(localized: String.LocalizationValue(item.title)))
                     }
+                    .tag(item)
+                    .padding(.vertical, 2)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-        } detail: {
-            Group {
-                switch selectedItem {
-                case .history:
-                    ChatHistoryView()
-                case .newChat:
-                    ChatView()
-                case .none:
-                    ChatView()
-                }
+            .listStyle(.sidebar)
+            .frame(minWidth: 140, idealWidth: 160, maxWidth: 200)
+
+            // 同时保留两个视图在层级中，切换时只隐藏不销毁，以保持「新建聊天」的对话内容
+            ZStack(alignment: .topLeading) {
+                ChatView()
+                    .opacity(selectedItem == .newChat || selectedItem == .none ? 1 : 0)
+                    .allowsHitTesting(selectedItem == .newChat || selectedItem == .none)
+
+                ChatHistoryView()
+                    .opacity(selectedItem == .history ? 1 : 0)
+                    .allowsHitTesting(selectedItem == .history)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
