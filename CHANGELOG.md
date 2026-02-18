@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0-rc9] - 2026-02-18
+
+### Fixed
+
+- 修复「No pyproject.toml found」错误：将 pyproject.toml 与 uv.lock 加入 App 打包资源，使 uv sync 在打包后运行时可用
+- 启动前检查 pyproject.toml 是否存在，缺失时给出明确错误提示
+
+## [1.0.0-rc8] - 2026-02-18
+
+### Added
+
+- Model Manager：uv sync 时显示「自动修复中（uv sync）...」进度提示
+- Model Manager：错误时新增「复制诊断信息」按钮，一键复制端口、stderr、解释器路径等便于反馈
+
+## [1.0.0-rc7] - 2026-02-18
+
+### Changed
+
+- EngineManager：新增启动前自检（端口占用、引擎目录、Python/uv 可用性）并返回明确错误原因
+- EngineManager：检测到 `.venv` 缺失时自动执行 `uv sync` 进行环境初始化
+- EngineManager：新增启动后健康等待（轮询 `/health`），避免“刚启动即请求”导致误报失败
+- EngineManager：记录并上抛 stderr 关键错误，进程异常退出时在 UI 显示可诊断信息
+- EngineClient：连接失败时先检查端口占用，区分“端口被占用”与“引擎未就绪/启动失败”
+- Model Manager：首次进入与手动重试都会先确保引擎就绪，再发起模型接口请求
+- 国际化：新增引擎目录缺失、解释器缺失、端口占用明细、引擎未就绪等错误文案
+
 ## [1.0.0-rc6] - 2026-02-18
 
 ### Changed

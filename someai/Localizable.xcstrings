@@ -227,13 +227,77 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unable to connect to server. Engine may still be starting or port 8001 is in use."
+            "value" : "Unable to connect to server. Engine is not ready yet."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法连接服务器，引擎可能仍在启动或端口 8001 已被占用。"
+            "value" : "无法连接服务器，引擎尚未就绪。"
+          }
+        }
+      }
+    },
+    "model_manager.error.engine_dir_not_found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine directory not found. Please reinstall app resources or check project layout."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未找到引擎目录。请检查应用资源或项目目录结构。"
+          }
+        }
+      }
+    },
+    "model_manager.error.engine_exited" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine process exited unexpectedly (code: %d)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引擎进程异常退出（退出码：%d）。"
+          }
+        }
+      }
+    },
+    "model_manager.error.engine_not_ready" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine is not ready on port %d. It may have failed to start."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引擎在端口 %d 尚未就绪，可能启动失败。"
+          }
+        }
+      }
+    },
+    "model_manager.error.engine_start_failed_with_stderr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine start failed: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引擎启动失败：%@"
           }
         }
       }
@@ -254,6 +318,54 @@
         }
       }
     },
+    "model_manager.error.port_in_use_by_process" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port %d is in use by: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端口 %d 已被占用：%@"
+          }
+        }
+      }
+    },
+    "model_manager.error.pyproject_not_found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pyproject.toml not found in project directory. Please run from project root or reinstall the app."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目目录缺少 pyproject.toml。请从项目根目录运行或重新安装应用。"
+          }
+        }
+      }
+    },
+    "model_manager.error.python_not_found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neither uv nor Python is available. Please install Python 3 or uv first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未检测到 uv 或 Python。请先安装 Python 3 或 uv。"
+          }
+        }
+      }
+    },
     "model_manager.error.timeout" : {
       "localizations" : {
         "en" : {
@@ -270,6 +382,22 @@
         }
       }
     },
+    "model_manager.error.uv_sync_failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment setup failed (uv sync): %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "环境初始化失败（uv sync）：%@"
+          }
+        }
+      }
+    },
     "model_manager.health" : {
       "localizations" : {
         "en" : {
@@ -282,6 +410,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "健康状况"
+          }
+        }
+      }
+    },
+    "model_manager.port_occupied_by" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port occupied by: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端口占用进程：%@"
+          }
+        }
+      }
+    },
+    "model_manager.preparing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setting up environment (uv sync)..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动修复中（uv sync）..."
+          }
+        }
+      }
+    },
+    "model_manager.copy_diagnostics" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy diagnostics"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制诊断信息"
           }
         }
       }
@@ -368,6 +544,70 @@
     },
     "Select an item" : {
 
+    },
+    "settings.engine" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引擎"
+          }
+        }
+      }
+    },
+    "settings.engine_port" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端口"
+          }
+        }
+      }
+    },
+    "settings.engine_port_footer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Engine API port (1024–65535). Restart engine after change."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "引擎 API 端口（1024–65535）。修改后需重启引擎。"
+          }
+        }
+      }
+    },
+    "settings.engine_port_placeholder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "18080"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "18080"
+          }
+        }
+      }
     },
     "settings.general" : {
       "localizations" : {
@@ -800,6 +1040,9 @@
           }
         }
       }
+    },
+    "v%@" : {
+
     },
     "voice_chat.placeholder.desc" : {
       "localizations" : {

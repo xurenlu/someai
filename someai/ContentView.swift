@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case chat
@@ -95,10 +96,15 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            engineManager.startEngine()
-            // Engine needs ~2s to start; fetchHealth/fetchModels have built-in retry (3 attempts, 1.5s apart)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                refreshEngineStatus()
+            Task {
+                let ready = await engineManager.ensureEngineReady()
+                if ready {
+                    refreshEngineStatus()
+                } else {
+                    lastError = engineManager.lastStartupError
+                    healthStatus = "Error"
+                    models = []
+                }
             }
         }
         .onDisappear {
@@ -110,17 +116,37 @@ struct ContentView: View {
         isLoading = true
         lastError = nil
         Task {
+            if !engineManager.isRunning {
+                let ready = await engineManager.ensureEngineReady()
+                guard ready else {
+                    await MainActor.run {
+                        lastError = engineManager.lastStartupError
+                        healthStatus = "Error"
+                        models = []
+                        isLoading = false
+                    }
+                    return
+                }
+            }
             do {
                 let health = try await EngineClient.fetchHealth()
-                healthStatus = "\(health.status) (\(health.models_loaded.joined(separator: ", ") == "" ? "—" : health.models_loaded.joined(separator: ", ")))"
+                await MainActor.run {
+                    healthStatus = "\(health.status) (\(health.models_loaded.joined(separator: ", ") == "" ? "—" : health.models_loaded.joined(separator: ", ")))"
+                }
                 let modelsResp = try await EngineClient.fetchModels()
-                models = modelsResp.models
+                await MainActor.run {
+                    models = modelsResp.models
+                }
             } catch {
-                lastError = error.localizedDescription
-                healthStatus = "Error"
-                models = []
+                await MainActor.run {
+                    lastError = error.localizedDescription
+                    healthStatus = "Error"
+                    models = []
+                }
             }
-            isLoading = false
+            await MainActor.run {
+                isLoading = false
+            }
         }
     }
 }
@@ -175,6 +201,7 @@ struct ModelManagerView: View {
     @Binding var isLoading: Bool
     @Binding var lastError: String?
     var engineManager: EngineManager
+    @State private var portOccupants: [String] = []
 
     var body: some View {
         List {
@@ -186,7 +213,15 @@ struct ModelManagerView: View {
                     Text(engineManager.isRunning ? String(localized: "model_manager.status.engine_running") : String(localized: "model_manager.status.engine_stopped"))
                         .font(.headline)
                 }
-                if isLoading {
+                if engineManager.isPreparing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text(String(localized: "model_manager.preparing"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if isLoading {
                     ProgressView()
                 } else {
                     Text("\(String(localized: "model_manager.health")): \(healthStatus)")
@@ -196,13 +231,27 @@ struct ModelManagerView: View {
                     Text("\(String(localized: "model_manager.error_label")): \(err)")
                         .font(.caption)
                         .foregroundStyle(.red)
-                    Button {
-                        Task { await refreshAsync() }
-                    } label: {
-                        Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                    if !portOccupants.isEmpty {
+                        Text(String(format: String(localized: "model_manager.port_occupied_by"), portOccupants.joined(separator: ", ")))
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isLoading)
+                    HStack(spacing: 8) {
+                        Button {
+                            Task { await refreshAsync() }
+                        } label: {
+                            Label(String(localized: "model_manager.retry"), systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isLoading)
+                        Button {
+                            copyDiagnostics()
+                        } label: {
+                            Label(String(localized: "model_manager.copy_diagnostics"), systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isLoading)
+                    }
                 }
             } header: {
                 Text(String(localized: "model_manager.status_header"))
@@ -231,6 +280,11 @@ struct ModelManagerView: View {
             }
         }
         .navigationTitle(String(localized: "sidebar.model_manager"))
+        .onAppear {
+            if !engineManager.isRunning {
+                engineManager.startEngine()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -246,9 +300,28 @@ struct ModelManagerView: View {
         }
     }
 
+    private func copyDiagnostics() {
+        let text = engineManager.buildDiagnostics()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     private func refreshAsync() async {
         isLoading = true
         lastError = nil
+        if !engineManager.isRunning {
+            let ready = await engineManager.ensureEngineReady()
+            guard ready else {
+                await MainActor.run {
+                    lastError = engineManager.lastStartupError
+                    healthStatus = "Error"
+                    models = []
+                    isLoading = false
+                }
+                return
+            }
+        }
+        portOccupants = []
         do {
             let health = try await EngineClient.fetchHealth()
             await MainActor.run {
@@ -259,8 +332,10 @@ struct ModelManagerView: View {
                 models = modelsResp.models
             }
         } catch {
+            let occupants = PortChecker.processesUsing(port: EngineConfig.shared.enginePort)
             await MainActor.run {
                 lastError = error.localizedDescription
+                portOccupants = occupants
                 healthStatus = "Error"
                 models = []
             }

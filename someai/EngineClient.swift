@@ -29,7 +29,7 @@ enum EngineConnectionError: LocalizedError {
 }
 
 struct EngineClient {
-    static let baseURL = URL(string: "http://127.0.0.1:8001")!
+    static var baseURL: URL { EngineConfig.shared.baseURL }
 
     /// Max retries for fetch operations.
     static let maxRetries = 3
@@ -82,8 +82,18 @@ struct EngineClient {
             // -1024 = connectionRefused, -1004 = cannotConnectToHost
             let code = urlError.code.rawValue
             if code == -1024 || urlError.code == .cannotConnectToHost {
-                print("[EngineClient] Connection refused to \(baseURL) - engine may not be ready or port 8001 in use")
-                return EngineConnectionError.connectionRefused.errorDescription ?? error.localizedDescription
+                let port = EngineConfig.shared.enginePort
+                let occupied = PortChecker.processesUsing(port: port)
+                if let first = occupied.first {
+                    print("[EngineClient] Connection refused to \(baseURL) - port \(port) is occupied by \(first)")
+                    return String(
+                        format: String(localized: "model_manager.error.port_in_use_by_process"),
+                        port,
+                        first
+                    )
+                }
+                print("[EngineClient] Connection refused to \(baseURL) - engine not ready")
+                return String(format: String(localized: "model_manager.error.engine_not_ready"), port)
             }
             if urlError.code == .timedOut {
                 print("[EngineClient] Request timed out to \(baseURL)")

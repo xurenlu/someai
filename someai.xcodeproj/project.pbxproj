@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		5CE6F7152F45E10000DFB058 /* engine in Resources */ = {isa = PBXBuildFile; fileRef = 5CE6F7142F45E10000DFB058 /* engine */; };
 		5CE6F7172F45E10000DFB058 /* config in Resources */ = {isa = PBXBuildFile; fileRef = 5CE6F7162F45E10000DFB058 /* config */; };
+		5CE6F7192F45E10000DFB058 /* pyproject.toml in Resources */ = {isa = PBXBuildFile; fileRef = 5CE6F7182F45E10000DFB058 /* pyproject.toml */; };
+		5CE6F71B2F45E10000DFB058 /* uv.lock in Resources */ = {isa = PBXBuildFile; fileRef = 5CE6F71A2F45E10000DFB058 /* uv.lock */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,6 +36,8 @@
 		5CE6F7002F45E09800DFB058 /* someaiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = someaiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5CE6F7142F45E10000DFB058 /* engine */ = {isa = PBXFileReference; lastKnownFileType = folder; path = engine; sourceTree = "<group>"; };
 		5CE6F7162F45E10000DFB058 /* config */ = {isa = PBXFileReference; lastKnownFileType = folder; path = config; sourceTree = "<group>"; };
+		5CE6F7182F45E10000DFB058 /* pyproject.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = pyproject.toml; sourceTree = "<group>"; };
+		5CE6F71A2F45E10000DFB058 /* uv.lock */ = {isa = PBXFileReference; lastKnownFileType = text; path = uv.lock; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -85,6 +89,8 @@
 				5CE6F6E92F45E09600DFB058 /* someai */,
 				5CE6F7142F45E10000DFB058 /* engine */,
 				5CE6F7162F45E10000DFB058 /* config */,
+				5CE6F7182F45E10000DFB058 /* pyproject.toml */,
+				5CE6F71A2F45E10000DFB058 /* uv.lock */,
 				5CE6F6F92F45E09800DFB058 /* someaiTests */,
 				5CE6F7032F45E09800DFB058 /* someaiUITests */,
 				5CE6F6E82F45E09600DFB058 /* Products */,
@@ -223,6 +229,8 @@
 			files = (
 				5CE6F7152F45E10000DFB058 /* engine in Resources */,
 				5CE6F7172F45E10000DFB058 /* config in Resources */,
+				5CE6F7192F45E10000DFB058 /* pyproject.toml in Resources */,
+				5CE6F71B2F45E10000DFB058 /* uv.lock in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,7 +427,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -450,7 +458,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -471,7 +479,7 @@
 				DEVELOPMENT_TEAM = W49B66SUW3;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someaiTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -492,7 +500,7 @@
 				DEVELOPMENT_TEAM = W49B66SUW3;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someaiTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -511,7 +519,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = W49B66SUW3;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someaiUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -530,7 +538,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = W49B66SUW3;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0.0-rc6;
+				MARKETING_VERSION = "1.0.0-rc9";
 				PRODUCT_BUNDLE_IDENTIFIER = im.some.someaiUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;

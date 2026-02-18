@@ -51,6 +51,7 @@ final class MicPermissionObserver {
 
 struct SettingsView: View {
     @State private var micObserver = MicPermissionObserver()
+    @State private var enginePortText: String = "\(EngineConfig.shared.enginePort)"
 
     var body: some View {
         List {
@@ -58,11 +59,30 @@ struct SettingsView: View {
                 HStack {
                     Text("settings.version")
                     Spacer()
-                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0-rc6")")
+                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0-rc9")")
                         .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("settings.general")
+            }
+
+            Section {
+                HStack {
+                    Text("settings.engine_port")
+                    Spacer()
+                    TextField("settings.engine_port_placeholder", text: $enginePortText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyEnginePort() }
+                }
+                .onAppear {
+                    enginePortText = "\(EngineConfig.shared.enginePort)"
+                }
+            } header: {
+                Text("settings.engine")
+            } footer: {
+                Text("settings.engine_port_footer")
             }
 
             Section {
@@ -113,6 +133,18 @@ struct SettingsView: View {
         case .granted: return String(localized: "settings.mic_granted")
         case .denied: return String(localized: "settings.mic_denied")
         case .undetermined: return String(localized: "settings.mic_undetermined")
+        }
+    }
+
+    private func applyEnginePort() {
+        if let v = Int(enginePortText), v >= 1024, v <= 65535 {
+            let oldPort = EngineConfig.shared.enginePort
+            EngineConfig.shared.enginePort = v
+            if oldPort != v {
+                EngineManager.shared.stopEngine()
+            }
+        } else {
+            enginePortText = "\(EngineConfig.shared.enginePort)"
         }
     }
 
