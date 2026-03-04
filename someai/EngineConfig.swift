@@ -17,6 +17,10 @@ final class EngineConfig {
     private let memoryLimitMBKey = "engine_memory_limit_mb"
     private let modelIdleTimeoutMinutesKey = "engine_model_idle_timeout_minutes"
     private let outputDirectoryKey = "output_directory"
+    private let llmGenerateTimeoutKey = "llm_generate_timeout_seconds"
+    private let imageGenerateTimeoutKey = "image_generate_timeout_seconds"
+    private let modelLoadTimeoutKey = "model_load_timeout_seconds"
+    private let modelDownloadTimeoutKey = "model_download_timeout_seconds"
 
     /// 有效端口范围
     private let minPort = 1024
@@ -83,6 +87,52 @@ final class EngineConfig {
 
     /// 中国镜像 URL（清华源）
     static let chinaMirrorURL = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+    // MARK: - Timeout Configurations
+
+    /// LLM 生成超时时间（秒），默认 300 秒（5 分钟）
+    var llmGenerateTimeoutSeconds: TimeInterval {
+        get {
+            let v = UserDefaults.standard.integer(forKey: llmGenerateTimeoutKey)
+            return v >= 10 ? TimeInterval(v) : 300
+        }
+        set {
+            UserDefaults.standard.set(max(10, min(3600, Int(newValue))), forKey: llmGenerateTimeoutKey)
+        }
+    }
+
+    /// 图片生成超时时间（秒），默认 180 秒（3 分钟）
+    var imageGenerateTimeoutSeconds: TimeInterval {
+        get {
+            let v = UserDefaults.standard.integer(forKey: imageGenerateTimeoutKey)
+            return v >= 10 ? TimeInterval(v) : 180
+        }
+        set {
+            UserDefaults.standard.set(max(10, min(3600, Int(newValue))), forKey: imageGenerateTimeoutKey)
+        }
+    }
+
+    /// 模型加载超时时间（秒），默认 300 秒（5 分钟）
+    var modelLoadTimeoutSeconds: TimeInterval {
+        get {
+            let v = UserDefaults.standard.integer(forKey: modelLoadTimeoutKey)
+            return v >= 30 ? TimeInterval(v) : 300
+        }
+        set {
+            UserDefaults.standard.set(max(30, min(1800, Int(newValue))), forKey: modelLoadTimeoutKey)
+        }
+    }
+
+    /// 模型下载超时时间（秒），默认 3600 秒（1 小时）
+    var modelDownloadTimeoutSeconds: TimeInterval {
+        get {
+            let v = UserDefaults.standard.integer(forKey: modelDownloadTimeoutKey)
+            return v >= 60 ? TimeInterval(v) : 3600
+        }
+        set {
+            UserDefaults.standard.set(max(60, min(10800, Int(newValue))), forKey: modelDownloadTimeoutKey)
+        }
+    }
 
     private init() {}
 }

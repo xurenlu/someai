@@ -13,12 +13,14 @@ struct someaiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var engineManager = EngineManager.shared
     @State private var historyStore = GenerationHistoryStore.shared
+    @State private var viewStateStore = ViewStateStore.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(engineManager)
                 .environment(historyStore)
+                .environment(viewStateStore)
         }
     }
 }

@@ -57,6 +57,10 @@ struct SettingsView: View {
     @State private var enginePortText: String = "\(EngineConfig.shared.enginePort)"
     @State private var memoryLimitText: String = ""
     @State private var modelIdleTimeoutText: String = "15"
+    @State private var llmTimeoutText: String = "300"
+    @State private var imageTimeoutText: String = "180"
+    @State private var modelLoadTimeoutText: String = "300"
+    @State private var modelDownloadTimeoutText: String = "3600"
     @State private var outputDirPath: String = ""
     @State private var isSyncing = false
     @State private var syncMessage: String?
@@ -89,6 +93,10 @@ struct SettingsView: View {
                     enginePortText = "\(EngineConfig.shared.enginePort)"
                     memoryLimitText = EngineConfig.shared.memoryLimitMB > 0 ? "\(EngineConfig.shared.memoryLimitMB)" : ""
                     modelIdleTimeoutText = "\(EngineConfig.shared.modelIdleTimeoutMinutes)"
+                    llmTimeoutText = "\(Int(EngineConfig.shared.llmGenerateTimeoutSeconds))"
+                    imageTimeoutText = "\(Int(EngineConfig.shared.imageGenerateTimeoutSeconds))"
+                    modelLoadTimeoutText = "\(Int(EngineConfig.shared.modelLoadTimeoutSeconds))"
+                    modelDownloadTimeoutText = "\(Int(EngineConfig.shared.modelDownloadTimeoutSeconds))"
                     outputDirPath = EngineConfig.shared.outputDirectory.path
                 }
                 HStack {
@@ -110,6 +118,59 @@ struct SettingsView: View {
                         .onSubmit { applyModelIdleTimeout() }
                 }
                 Toggle("settings.use_china_mirror", isOn: $useChinaMirror)
+
+                // Timeout Settings
+                HStack {
+                    Text("settings.llm_timeout")
+                    Spacer()
+                    TextField("settings.llm_timeout_placeholder", text: $llmTimeoutText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyLLMTimeout() }
+                    Text("settings.seconds")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                HStack {
+                    Text("settings.image_timeout")
+                    Spacer()
+                    TextField("settings.image_timeout_placeholder", text: $imageTimeoutText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyImageTimeout() }
+                    Text("settings.seconds")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                HStack {
+                    Text("settings.model_load_timeout")
+                    Spacer()
+                    TextField("settings.model_load_timeout_placeholder", text: $modelLoadTimeoutText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyModelLoadTimeout() }
+                    Text("settings.seconds")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                HStack {
+                    Text("settings.model_download_timeout")
+                    Spacer()
+                    TextField("settings.model_download_timeout_placeholder", text: $modelDownloadTimeoutText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { applyModelDownloadTimeout() }
+                    Text("settings.seconds")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
                 if isSyncing {
                     HStack {
                         ProgressView()
@@ -284,6 +345,46 @@ struct SettingsView: View {
             EngineManager.shared.stopEngine()
         } else {
             modelIdleTimeoutText = "\(EngineConfig.shared.modelIdleTimeoutMinutes)"
+        }
+    }
+
+    private func applyLLMTimeout() {
+        let trimmed = llmTimeoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let v = Int(trimmed), v >= 10, v <= 3600 {
+            EngineConfig.shared.llmGenerateTimeoutSeconds = TimeInterval(v)
+            llmTimeoutText = "\(v)"
+        } else {
+            llmTimeoutText = "\(Int(EngineConfig.shared.llmGenerateTimeoutSeconds))"
+        }
+    }
+
+    private func applyImageTimeout() {
+        let trimmed = imageTimeoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let v = Int(trimmed), v >= 10, v <= 3600 {
+            EngineConfig.shared.imageGenerateTimeoutSeconds = TimeInterval(v)
+            imageTimeoutText = "\(v)"
+        } else {
+            imageTimeoutText = "\(Int(EngineConfig.shared.imageGenerateTimeoutSeconds))"
+        }
+    }
+
+    private func applyModelLoadTimeout() {
+        let trimmed = modelLoadTimeoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let v = Int(trimmed), v >= 30, v <= 1800 {
+            EngineConfig.shared.modelLoadTimeoutSeconds = TimeInterval(v)
+            modelLoadTimeoutText = "\(v)"
+        } else {
+            modelLoadTimeoutText = "\(Int(EngineConfig.shared.modelLoadTimeoutSeconds))"
+        }
+    }
+
+    private func applyModelDownloadTimeout() {
+        let trimmed = modelDownloadTimeoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let v = Int(trimmed), v >= 60, v <= 10800 {
+            EngineConfig.shared.modelDownloadTimeoutSeconds = TimeInterval(v)
+            modelDownloadTimeoutText = "\(v)"
+        } else {
+            modelDownloadTimeoutText = "\(Int(EngineConfig.shared.modelDownloadTimeoutSeconds))"
         }
     }
 

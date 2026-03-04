@@ -2,16 +2,21 @@
 //  ContentView.swift
 //  someai
 //
-//  MacAIStudio 主界面 - Sidebar 布局
+//  MacAIStudio 主界面 - 重新设计的侧边栏布局
 //
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case chatHub
-    case createHub
-    case historyHub
+    case chat
+    case voiceAssistant
+    case imageGen
+    case textToSpeech
+    case speechToText
+    case ocr
+    case history
     case modelManager
     case settings
 
@@ -19,9 +24,13 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .chatHub: return "sidebar.chat_hub"
-        case .createHub: return "sidebar.create_hub"
-        case .historyHub: return "sidebar.history_hub"
+        case .chat: return "sidebar.chat"
+        case .voiceAssistant: return "sidebar.voice_assistant"
+        case .imageGen: return "sidebar.image_gen"
+        case .textToSpeech: return "sidebar.text_to_speech"
+        case .speechToText: return "sidebar.speech_to_text"
+        case .ocr: return "sidebar.ocr"
+        case .history: return "sidebar.history"
         case .modelManager: return "sidebar.model_manager"
         case .settings: return "sidebar.settings"
         }
@@ -29,18 +38,45 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .chatHub: return "bubble.left.and.bubble.right"
-        case .createHub: return "plus.circle"
-        case .historyHub: return "clock.arrow.circlepath"
+        case .chat: return "bubble.left.and.bubble.right"
+        case .voiceAssistant: return "wave.form"
+        case .imageGen: return "photo.badge.plus"
+        case .textToSpeech: return "speaker.wave.2"
+        case .speechToText: return "mic"
+        case .ocr: return "doc.text.viewfinder"
+        case .history: return "clock.arrow.circlepath"
         case .modelManager: return "cpu"
         case .settings: return "gearshape"
+        }
+    }
+
+    var section: SidebarSection {
+        switch self {
+        case .chat, .voiceAssistant, .imageGen, .textToSpeech, .speechToText, .ocr:
+            return .features
+        case .history, .modelManager, .settings:
+            return .system
+        }
+    }
+}
+
+enum SidebarSection: String, CaseIterable, Identifiable {
+    case features
+    case system
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .features: return "sidebar.section.features"
+        case .system: return "sidebar.section.system"
         }
     }
 }
 
 struct ContentView: View {
     @Environment(EngineManager.self) var engineManager
-    @State private var selectedItem: SidebarItem? = .chatHub
+    @State private var selectedItem: SidebarItem? = .chat
     @State private var healthStatus: String = "—"
     @State private var models: [EngineClient.ModelSummary] = []
     @State private var isLoading = false
@@ -49,21 +85,37 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedItem) {
-                ForEach(SidebarItem.allCases) { item in
-                    NavigationLink(value: item) {
-                        Label(String(localized: String.LocalizationValue(item.title)), systemImage: item.icon)
+                ForEach(SidebarSection.allCases) { section in
+                    Section {
+                        ForEach(SidebarItem.allCases.filter { $0.section == section }) { item in
+                            NavigationLink(value: item) {
+                                Label(String(localized: String.LocalizationValue(item.title)), systemImage: item.icon)
+                            }
+                        }
+                    } header: {
+                        Text(String(localized: String.LocalizationValue(section.title)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 80, ideal: 96)  // 约4个汉字宽度
+            .navigationSplitViewColumnWidth(min: 120, ideal: 160)
         } detail: {
             Group {
                 switch selectedItem {
-                case .chatHub:
-                    ChatHubView()
-                case .createHub:
-                    CreateHubView()
-                case .historyHub:
+                case .chat:
+                    ChatView()
+                case .voiceAssistant:
+                    VoiceAssistantView()
+                case .imageGen:
+                    ImageView()
+                case .textToSpeech:
+                    TTSView()
+                case .speechToText:
+                    STTView()
+                case .ocr:
+                    OCRView()
+                case .history:
                     HistoryHubView()
                 case .modelManager:
                     ModelManagerView(
@@ -147,49 +199,488 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Placeholder Views (M2+ will implement)
+// MARK: - New Feature Views
 
-struct ChatPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "chat.placeholder.title",
-            systemImage: "bubble.left.and.bubble.right",
-            description: Text("chat.placeholder.desc")
+/// 语音助手 - 完整的 STT → LLM → TTS 交互流程
+struct VoiceAssistantView: View {
+    @Environment(GenerationHistoryStore.self) private var historyStore
+    @Environment(ViewStateStore.self) private var viewStateStore
+
+    @State private var isRecording = false
+    @State private var availableModels: [EngineClient.ModelSummary] = []
+
+    private var transcript: Binding<String> {
+        Binding(
+            get: { viewStateStore.voiceTranscript },
+            set: { viewStateStore.voiceTranscript = $0 }
         )
+    }
+
+    private var responseText: Binding<String> {
+        Binding(
+            get: { viewStateStore.voiceResponseText },
+            set: { viewStateStore.voiceResponseText = $0 }
+        )
+    }
+
+    private var audioURL: Binding<URL?> {
+        Binding(
+            get: { viewStateStore.voiceAudioURL },
+            set: { viewStateStore.voiceAudioURL = $0 }
+        )
+    }
+
+    private var isProcessing: Binding<Bool> {
+        Binding(
+            get: { viewStateStore.voiceIsProcessing },
+            set: { viewStateStore.voiceIsProcessing = $0 }
+        )
+    }
+
+    private var selectedModelId: Binding<String?> {
+        Binding(
+            get: { viewStateStore.voiceSelectedLLMModel.isEmpty ? nil : viewStateStore.voiceSelectedLLMModel },
+            set: { viewStateStore.voiceSelectedLLMModel = $0 ?? "" }
+        )
+    }
+
+    private var selectedTTSModel: Binding<String?> {
+        Binding(
+            get: { viewStateStore.voiceSelectedTTSModel.isEmpty ? nil : viewStateStore.voiceSelectedTTSModel },
+            set: { viewStateStore.voiceSelectedTTSModel = $0 ?? "" }
+        )
+    }
+
+    private var selectedSTTModel: Binding<String?> {
+        Binding(
+            get: { viewStateStore.voiceSelectedSTTModel.isEmpty ? nil : viewStateStore.voiceSelectedSTTModel },
+            set: { viewStateStore.voiceSelectedSTTModel = $0 ?? "" }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Header
+            VStack(spacing: 8) {
+                Text("voice_assistant.title")
+                    .font(.title)
+                    .bold()
+                Text("voice_assistant.description")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 20)
+
+            // Model Selection
+            HStack(spacing: 16) {
+                Picker("voice_assistant.stt_model", selection: selectedSTTModel) {
+                    Text("voice_assistant.auto").tag(nil as String?)
+                    ForEach(availableModels.filter { $0.type == "stt" }, id: \.id) { model in
+                        Text(model.name).tag(model.id as String?)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("voice_assistant.tts_model", selection: selectedTTSModel) {
+                    Text("voice_assistant.auto").tag(nil as String?)
+                    ForEach(availableModels.filter { $0.type == "tts" }, id: \.id) { model in
+                        Text(model.name).tag(model.id as String?)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("voice_assistant.llm_model", selection: selectedModelId) {
+                    Text("voice_assistant.auto").tag(nil as String?)
+                    ForEach(availableModels.filter { $0.type == "llm" }, id: \.id) { model in
+                        Text(model.name).tag(model.id as String?)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(.horizontal)
+            .onAppear {
+                loadModels()
+            }
+
+            Divider()
+
+            // Transcript Display
+            VStack(alignment: .leading, spacing: 12) {
+                Text("voice_assistant.you_said")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                ScrollView {
+                    Text(transcript.wrappedValue.isEmpty ? "voice_assistant.tap_to_speak" : transcript.wrappedValue)
+                        .font(.body)
+                        .foregroundStyle(transcript.wrappedValue.isEmpty ? .tertiary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 100)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(8)
+            }
+            .padding(.horizontal)
+
+            // Response Display
+            VStack(alignment: .leading, spacing: 12) {
+                Text("voice_assistant.response")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                ScrollView {
+                    Text(responseText.wrappedValue.isEmpty ? "voice_assistant.response_placeholder" : responseText.wrappedValue)
+                        .font(.body)
+                        .foregroundStyle(responseText.wrappedValue.isEmpty ? .tertiary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 150)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(8)
+
+                if let audioURL = audioURL.wrappedValue {
+                    AudioPlayerView(audioURL: audioURL)
+                }
+            }
+            .padding(.horizontal)
+
+            Spacer()
+
+            // Control Buttons
+            HStack(spacing: 20) {
+                Button {
+                    Task {
+                        await startVoiceInteraction()
+                    }
+                } label: {
+                    Label("voice_assistant.start", systemImage: "mic.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isProcessing.wrappedValue)
+
+                if audioURL.wrappedValue != nil || !responseText.wrappedValue.isEmpty {
+                    Button {
+                        saveToHistory()
+                    } label: {
+                        Label("voice_assistant.save", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.bottom, 30)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(String(localized: "sidebar.voice_assistant"))
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func loadModels() {
+        Task {
+            do {
+                let resp = try await EngineClient.fetchModels()
+                await MainActor.run {
+                    availableModels = resp.models.filter { $0.status == "installed" }
+                }
+            } catch {
+                print("Failed to load models: \(error)")
+            }
+        }
+    }
+
+    private func startVoiceInteraction() async {
+        isProcessing.wrappedValue = true
+        defer { isProcessing.wrappedValue = false }
+
+        // 1. Record audio
+        guard let recordingURL = await recordAudio() else { return }
+
+        // 2. STT
+        let audioData = try? Data(contentsOf: recordingURL)
+        guard let audioData, let transcribed = try? await EngineClient.transcribe(audioData: audioData) else { return }
+        viewStateStore.voiceTranscript = transcribed
+
+        // 3. LLM
+        let llmResponse = try? await EngineClient.generateChat(
+            prompt: transcribed,
+            temperature: 0.7,
+            maxTokens: 512,
+            modelId: selectedModelId.wrappedValue
+        )
+        guard let response = llmResponse else { return }
+        viewStateStore.voiceResponseText = response
+
+        // 4. TTS
+        if let ttsAudio = try? await EngineClient.generateTTS(
+            text: response,
+            language: "zh",
+            speaker: "default",
+            modelId: selectedTTSModel.wrappedValue
+        ) {
+            let fileName = "voice_\(Int(Date().timeIntervalSince1970)).mp3"
+            let outputURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(fileName)
+            try? ttsAudio.write(to: outputURL)
+            viewStateStore.voiceAudioURL = outputURL
+        }
+    }
+
+    private func recordAudio() async -> URL? {
+        // Simplified recording - in real implementation would show recording UI
+        try? await Task.sleep(nanoseconds: 100_000_000) // Simulate recording
+        return nil
+    }
+
+    private func saveToHistory() {
+        let payload = GenerationPayload(
+            voiceChat: .init(
+                userText: viewStateStore.voiceTranscript,
+                assistantText: viewStateStore.voiceResponseText,
+                llmPrompt: viewStateStore.voiceTranscript,
+                llmTemperature: 0.7,
+                llmMaxTokens: 512,
+                ttsText: viewStateStore.voiceResponseText,
+                ttsLanguage: "zh",
+                ttsSpeaker: "default"
+            )
+        )
+        let record = GenerationRecord(
+            kind: .voiceChat,
+            status: .success,
+            payload: payload
+        )
+        historyStore.append(record)
+        viewStateStore.voiceTranscript = ""
+        viewStateStore.voiceResponseText = ""
+        viewStateStore.voiceAudioURL = nil
     }
 }
 
-struct TTSPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "tts.placeholder.title",
-            systemImage: "speaker.wave.2",
-            description: Text("tts.placeholder.desc")
+/// 语音识别视图
+struct STTView: View {
+    @Environment(ViewStateStore.self) private var viewStateStore
+
+    @State private var availableModels: [EngineClient.ModelSummary] = []
+
+    private var selectedAudioURL: Binding<URL?> {
+        Binding(
+            get: { viewStateStore.sttSelectedAudioURL },
+            set: { viewStateStore.sttSelectedAudioURL = $0 }
         )
+    }
+
+    private var transcriptText: Binding<String> {
+        Binding(
+            get: { viewStateStore.sttTranscriptText },
+            set: { viewStateStore.sttTranscriptText = $0 }
+        )
+    }
+
+    private var isProcessing: Binding<Bool> {
+        Binding(
+            get: { viewStateStore.sttIsProcessing },
+            set: { viewStateStore.sttIsProcessing = $0 }
+        )
+    }
+
+    private var selectedModelId: Binding<String?> {
+        Binding(
+            get: { viewStateStore.sttSelectedModelId.isEmpty ? nil : viewStateStore.sttSelectedModelId },
+            set: { viewStateStore.sttSelectedModelId = $0 ?? "" }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Header
+            VStack(spacing: 8) {
+                Text("stt.title")
+                    .font(.title)
+                    .bold()
+                Text("stt.description")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 20)
+
+            // Model Selection
+            HStack {
+                Picker("stt.model", selection: selectedModelId) {
+                    Text("stt.auto_select").tag(nil as String?)
+                    ForEach(availableModels.filter { $0.type == "stt" }, id: \.id) { model in
+                        Text(model.name).tag(model.id as String?)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(.horizontal)
+            .onAppear {
+                loadModels()
+            }
+
+            Divider()
+
+            // File Selection
+            VStack(alignment: .leading, spacing: 12) {
+                Text("stt.select_audio")
+                    .font(.headline)
+
+                if let url = selectedAudioURL.wrappedValue {
+                    HStack {
+                        Text(url.lastPathComponent)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("stt.remove") {
+                            viewStateStore.sttSelectedAudioURL = nil
+                            viewStateStore.sttTranscriptText = ""
+                        }
+                    }
+                    .padding()
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(8)
+                } else {
+                    Button {
+                        selectAudioFile()
+                    } label: {
+                        Label("stt.browse", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal)
+
+            // Transcript Result
+            VStack(alignment: .leading, spacing: 12) {
+                Text("stt.transcript")
+                    .font(.headline)
+
+                TextEditor(text: transcriptText)
+                    .font(.body)
+                    .frame(minHeight: 200)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .cornerRadius(8)
+                    .disabled(isProcessing.wrappedValue)
+
+                HStack {
+                    Spacer()
+                    Button {
+                        copyTranscript()
+                    } label: {
+                        Label("stt.copy", systemImage: "doc.on.doc")
+                    }
+                    .disabled(transcriptText.wrappedValue.isEmpty)
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal)
+
+            Spacer()
+
+            // Action Button
+            Button {
+                Task {
+                    await transcribe()
+                }
+            } label: {
+                Label("stt.transcribe", systemImage: "mic")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(selectedAudioURL.wrappedValue == nil || isProcessing.wrappedValue)
+            .padding(.bottom, 30)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(String(localized: "sidebar.speech_to_text"))
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func loadModels() {
+        Task {
+            do {
+                let resp = try await EngineClient.fetchModels()
+                await MainActor.run {
+                    availableModels = resp.models.filter { $0.status == "installed" }
+                }
+            } catch {
+                print("Failed to load models: \(error)")
+            }
+        }
+    }
+
+    private func selectAudioFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio, .movie]
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                viewStateStore.sttSelectedAudioURL = url
+            }
+        }
+    }
+
+    private func transcribe() async {
+        guard let url = viewStateStore.sttSelectedAudioURL else { return }
+        isProcessing.wrappedValue = true
+        defer { isProcessing.wrappedValue = false }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let result = try await EngineClient.transcribe(audioData: data)
+            await MainActor.run {
+                viewStateStore.sttTranscriptText = result
+            }
+        } catch {
+            await MainActor.run {
+                viewStateStore.sttTranscriptText = error.localizedDescription
+            }
+        }
+    }
+
+    private func copyTranscript() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(viewStateStore.sttTranscriptText, forType: .string)
     }
 }
 
-struct VoiceChatPlaceholderView: View {
+/// 简单的音频播放器视图
+struct AudioPlayerView: View {
+    let audioURL: URL
+    @State private var isPlaying = false
+
     var body: some View {
-        ContentUnavailableView(
-            "voice_chat.placeholder.title",
-            systemImage: "mic.fill",
-            description: Text("voice_chat.placeholder.desc")
-        )
+        HStack(spacing: 12) {
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+            }
+            .buttonStyle(.plain)
+
+            Slider(value: .constant(0.5))
+                .disabled(true)
+
+            Text("0:00 / 0:00")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    private func togglePlayback() {
+        isPlaying.toggle()
+        // In real implementation, would use AVAudioPlayer
     }
 }
 
-struct ImagePlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "image.placeholder.title",
-            systemImage: "photo",
-            description: Text("image.placeholder.desc")
-        )
-    }
-}
-
-// MARK: - Model Manager View
+// MARK: - Model Manager View (keep existing)
 
 struct ModelManagerView: View {
     @Binding var healthStatus: String

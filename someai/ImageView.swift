@@ -11,27 +11,62 @@ import AppKit
 
 struct ImageView: View {
     @Environment(GenerationHistoryStore.self) var historyStore
-    @State private var prompt = ""
-    @State private var width: Double = 512
-    @State private var height: Double = 512
-    @State private var generatedImage: NSImage?
-    @State private var isGenerating = false
+    @Environment(ViewStateStore.self) var viewStateStore
+
+    private var prompt: Binding<String> {
+        Binding(
+            get: { viewStateStore.imagePrompt },
+            set: { viewStateStore.imagePrompt = $0 }
+        )
+    }
+
+    private var width: Binding<Double> {
+        Binding(
+            get: { viewStateStore.imageWidth },
+            set: { viewStateStore.imageWidth = $0 }
+        )
+    }
+
+    private var height: Binding<Double> {
+        Binding(
+            get: { viewStateStore.imageHeight },
+            set: { viewStateStore.imageHeight = $0 }
+        )
+    }
+
+    private var generatedImage: Binding<NSImage?> {
+        Binding(
+            get: {
+                guard let data = viewStateStore.imageGeneratedData else { return nil }
+                return NSImage(data: data)
+            },
+            set: { viewStateStore.imageGeneratedData = $0?.tiffRepresentation }
+        )
+    }
+
+    private var isGenerating: Binding<Bool> {
+        Binding(
+            get: { viewStateStore.imageIsGenerating },
+            set: { viewStateStore.imageIsGenerating = $0 }
+        )
+    }
+
     @State private var lastError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextField("image.prompt_placeholder", text: $prompt, axis: .vertical)
+            TextField("image.prompt_placeholder", text: prompt, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...4)
 
             HStack {
                 Text("image.width")
-                Slider(value: $width, in: 256...1024, step: 64)
-                Text("\(Int(width))")
+                Slider(value: width, in: 256...1024, step: 64)
+                Text("\(Int(width.wrappedValue))")
                     .frame(width: 40)
                 Text("image.height")
-                Slider(value: $height, in: 256...1024, step: 64)
-                Text("\(Int(height))")
+                Slider(value: height, in: 256...1024, step: 64)
+                Text("\(Int(height.wrappedValue))")
                     .frame(width: 40)
             }
 
@@ -40,9 +75,9 @@ struct ImageView: View {
             } label: {
                 Label("image.generate", systemImage: "photo.badge.plus")
             }
-            .disabled(prompt.isEmpty || isGenerating)
+            .disabled(prompt.wrappedValue.isEmpty || isGenerating.wrappedValue)
 
-            if isGenerating {
+            if isGenerating.wrappedValue {
                 ProgressView("image.generating")
             }
 
@@ -52,7 +87,7 @@ struct ImageView: View {
                     .foregroundStyle(.red)
             }
 
-            if let img = generatedImage {
+            if let img = generatedImage.wrappedValue {
                 Image(nsImage: img)
                     .resizable()
                     .scaledToFit()
@@ -70,20 +105,20 @@ struct ImageView: View {
     }
 
     private func generateImage() {
-        guard !prompt.isEmpty else { return }
-        isGenerating = true
+        guard !prompt.wrappedValue.isEmpty else { return }
+        isGenerating.wrappedValue = true
         lastError = nil
 
-        let w = Int(width)
-        let h = Int(height)
-        let payload = GenerationPayload(image: .init(prompt: prompt, width: w, height: h))
+        let w = Int(width.wrappedValue)
+        let h = Int(height.wrappedValue)
+        let payload = GenerationPayload(image: .init(prompt: prompt.wrappedValue, width: w, height: h))
         let record = GenerationRecord(kind: .image, status: .running, payload: payload)
         historyStore.append(record)
 
         let start = Date()
         Task {
             do {
-                let data = try await EngineClient.generateImage(prompt: prompt, width: w, height: h)
+                let data = try await EngineClient.generateImage(prompt: prompt.wrappedValue, width: w, height: h)
                 let durationMs = Int(Date().timeIntervalSince(start) * 1000)
 
                 if let img = NSImage(data: data) {
@@ -95,27 +130,27 @@ struct ImageView: View {
                     }
 
                     await MainActor.run {
-                        generatedImage = img
+                        viewStateStore.imageGeneratedData = data
                         historyStore.update(
                             id: record.id,
                             status: .success,
                             resultRef: .init(filePath: fileURL.path, mimeType: "image/png"),
                             durationMs: durationMs
                         )
-                        isGenerating = false
+                        isGenerating.wrappedValue = false
                     }
                 } else {
                     await MainActor.run {
                         lastError = "Invalid image data"
                         historyStore.update(id: record.id, status: .failed, errorMessage: lastError)
-                        isGenerating = false
+                        isGenerating.wrappedValue = false
                     }
                 }
             } catch {
                 await MainActor.run {
                     lastError = error.localizedDescription
                     historyStore.update(id: record.id, status: .failed, errorMessage: error.localizedDescription)
-                    isGenerating = false
+                    isGenerating.wrappedValue = false
                 }
             }
         }

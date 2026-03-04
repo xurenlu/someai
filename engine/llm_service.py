@@ -28,7 +28,7 @@ OLLAMA_BASE = __import__("os").environ.get("OLLAMA_HOST", "http://localhost:1143
 OLLAMA_MODELS: list[str] = (
     [m.strip() for m in __import__("os").environ.get("OLLAMA_MODEL", "").split(",") if m.strip()]
     if __import__("os").environ.get("OLLAMA_MODEL")
-    else ["qwen2.5:0.5b", "llama3.2:3b", "phi3:mini", "tinyllama"]
+    else ["qwen3.5:0.8b", "qwen2.5:0.5b", "llama3.2:3b", "phi3:mini", "tinyllama"]
 )
 
 MODEL_TYPE = "llm"

@@ -11,8 +11,11 @@ _trocr_processor = None
 _trocr_model = None
 
 
+_MODEL_WEIGHT_NAMES = ("pytorch_model.bin", "model.safetensors", "tf_model.h5")
+
+
 def _get_first_installed_ocr_path() -> Path | None:
-    """Return local path of first installed OCR model from config."""
+    """Return local path of first installed OCR model from config. Must have model weights."""
     from .models_api import _load_models_config
 
     models = _load_models_config()
@@ -20,7 +23,11 @@ def _get_first_installed_ocr_path() -> Path | None:
         if m.get("type") != "ocr":
             continue
         local = MODELS_DIR / "ocr" / m.get("id", "")
-        if local.exists() and any(local.iterdir()):
+        if not local.exists() or not any(local.iterdir()):
+            continue
+        # 必须有模型权重文件才算完整安装
+        has_weights = any((local / name).exists() for name in _MODEL_WEIGHT_NAMES)
+        if has_weights:
             return local
     return None
 
@@ -36,7 +43,8 @@ def _get_trocr_model():
     model_path = _get_first_installed_ocr_path()
     if model_path is None:
         raise RuntimeError(
-            "未找到已安装的 OCR 模型。请先在 Model Manager 下载 trocr-base-printed"
+            "未找到完整的 OCR 模型。请在 Model Manager 下载 trocr-base-printed；"
+            "若已下载仍报错，可能是下载不完整，请删除 models/ocr/trocr-base-printed 后重新下载。"
         )
 
     _trocr_processor = TrOCRProcessor.from_pretrained(str(model_path))

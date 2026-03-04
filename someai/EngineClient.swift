@@ -188,7 +188,7 @@ struct EngineClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["model_id": modelId])
-        req.timeoutInterval = 3600
+        req.timeoutInterval = EngineConfig.shared.modelDownloadTimeoutSeconds
 
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else {
@@ -223,7 +223,7 @@ struct EngineClient {
             }
         }
         var req = URLRequest(url: url)
-        req.timeoutInterval = 3600
+        req.timeoutInterval = EngineConfig.shared.modelDownloadTimeoutSeconds
 
         return AsyncThrowingStream { continuation in
             Task {
@@ -381,7 +381,7 @@ struct EngineClient {
         let url = baseURL.appendingPathComponent("models").appendingPathComponent(modelId).appendingPathComponent("load")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 300  // 5 min for large models
+        req.timeoutInterval = EngineConfig.shared.modelLoadTimeoutSeconds
 
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else {
@@ -401,6 +401,7 @@ struct EngineClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(LLMGenerateRequest(prompt: prompt, temperature: temperature, max_tokens: maxTokens, model_id: modelId))
+        req.timeoutInterval = EngineConfig.shared.llmGenerateTimeoutSeconds
 
         var lastError: Error?
         var hasPreloadRetried = false
@@ -513,6 +514,7 @@ struct EngineClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(ImageGenerateRequest(prompt: prompt, width: width, height: height))
+        req.timeoutInterval = EngineConfig.shared.imageGenerateTimeoutSeconds
 
         var lastError: Error?
         for attempt in 1...(generateMaxRetries + 1) {
