@@ -37,6 +37,8 @@ HF_REPOS = {
     "siglip-base-patch16-224": "google/siglip-base-patch16-224",
     "siglip-base-patch16-384": "google/siglip-base-patch16-384",
     "trocr-base-printed": "microsoft/trocr-base-printed",
+    "google-gemma-4-e2b-it": "google/gemma-4-E2B-it",
+    "google-gemma-4-e4b-it": "google/gemma-4-E4B-it",
 }
 
 def _version_header():

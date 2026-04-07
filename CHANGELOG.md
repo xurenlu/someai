@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0-rc1] - 2026-04-07
+
+### Added
+
+- 模型库：Gemma 4 指令模型 `google/gemma-4-E2B-it`、`google/gemma-4-E4B-it`（Hugging Face 下载与本地推理；E2B 适合 16GB 统一内存 Mac，E4B 权重大约 16GB 更适合 32GB）
+- LLM 服务：识别 `Gemma4ForConditionalGeneration`，使用 `AutoModelForImageTextToText` + `AutoProcessor` 推理；Apple Silicon 优先 MPS + float16
+
+### Changed
+
+- 依赖：`transformers` 升级至 `>=5.5.0`（Gemma 4 需要）；移除可选 extra `qwen-tts`（与 transformers 5.x 冲突，需独立环境安装 qwen-tts）
+
 ## [1.1.2] - 2026-02-19
 
 ### Fixed

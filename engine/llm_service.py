@@ -33,8 +33,9 @@ OLLAMA_MODELS: list[str] = (
 
 MODEL_TYPE = "llm"
 
-# Cached model: (model_obj, tokenizer, model_id)
-_llm_cache: tuple[object, object, str] | None = None
+# Cached model: (model_obj, tokenizer_or_processor, model_id, backend)
+# backend: "causal_lm" | "gemma4"
+_llm_cache: tuple[object, object, str, str] | None = None
 
 
 class ModelNotLoadedError(RuntimeError):
@@ -80,15 +81,34 @@ def _get_first_installed_llm_id() -> str | None:
     return None
 
 
-def _load_transformers_model(model_id: str) -> tuple[object, object]:
-    """Load model and tokenizer. Returns (model, tokenizer)."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+def _llm_backend_for_path(model_path: Path) -> str:
+    """根据 config.json 判断加载方式：Gemma 4 多模态用 AutoModelForImageTextToText。"""
+    cfg_path = model_path / "config.json"
+    if not cfg_path.is_file():
+        return "causal_lm"
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "causal_lm"
+    arch = (cfg.get("architectures") or [None])[0]
+    if arch == "Gemma4ForConditionalGeneration":
+        return "gemma4"
+    return "causal_lm"
 
-    model_path = _get_llm_path(model_id)
-    if not model_path:
-        raise RuntimeError(
-            f"未找到已安装的 LLM 模型 {model_id}。请先在 Model Manager 下载模型。"
-        )
+
+def _pick_device_dtype():
+    """M2/M3 优先 MPS + float16，其次 CUDA，否则 CPU float16 以节省内存。"""
+    import torch
+
+    if torch.backends.mps.is_available():
+        return torch.device("mps"), torch.float16
+    if torch.cuda.is_available():
+        return torch.device("cuda"), torch.bfloat16
+    return torch.device("cpu"), torch.float16
+
+
+def _load_causal_lm_model(model_path: Path) -> tuple[object, object]:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(str(model_path), trust_remote_code=True)
     with warnings.catch_warnings():
@@ -107,6 +127,46 @@ def _load_transformers_model(model_id: str) -> tuple[object, object]:
     return model, tokenizer
 
 
+def _load_gemma4_model(model_path: Path) -> tuple[object, object]:
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+    import torch
+
+    device, dtype = _pick_device_dtype()
+    processor = AutoProcessor.from_pretrained(str(model_path), trust_remote_code=True)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Some weights of .* were not initialized",
+            category=UserWarning,
+            module="transformers",
+        )
+        model = AutoModelForImageTextToText.from_pretrained(
+            str(model_path),
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
+    model = model.to(device)
+    model.eval()
+    return model, processor
+
+
+def _load_transformers_model(model_id: str) -> tuple[object, object, str]:
+    """Load model and tokenizer/processor. Returns (model, tokenizer_or_processor, backend)."""
+    model_path = _get_llm_path(model_id)
+    if not model_path:
+        raise RuntimeError(
+            f"未找到已安装的 LLM 模型 {model_id}。请先在 Model Manager 下载模型。"
+        )
+
+    backend = _llm_backend_for_path(model_path)
+    if backend == "gemma4":
+        model, processor = _load_gemma4_model(model_path)
+        return model, processor, backend
+    model, tokenizer = _load_causal_lm_model(model_path)
+    return model, tokenizer, "causal_lm"
+
+
 def _unload_llm() -> None:
     """Unload cached LLM to free memory."""
     global _llm_cache
@@ -117,18 +177,18 @@ def _unload_llm() -> None:
         logger.info("LLM model unloaded (idle timeout)")
 
 
-def _ensure_loaded(model_id: str) -> tuple[object, object]:
-    """Ensure model is loaded. Load if needed. Returns (model, tokenizer)."""
+def _ensure_loaded(model_id: str) -> tuple[object, object, str]:
+    """Ensure model is loaded. Returns (model, tokenizer_or_processor, backend)."""
     global _llm_cache
     if _llm_cache is not None:
-        _, _, cached_id = _llm_cache
+        _, _, cached_id, _ = _llm_cache
         if cached_id == model_id:
-            return _llm_cache[0], _llm_cache[1]
+            return _llm_cache[0], _llm_cache[1], _llm_cache[3]
         _unload_llm()
-    model, tokenizer = _load_transformers_model(model_id)
-    _llm_cache = (model, tokenizer, model_id)
+    model, handler, backend = _load_transformers_model(model_id)
+    _llm_cache = (model, handler, model_id, backend)
     record_usage(MODEL_TYPE, model_id)
-    return model, tokenizer
+    return model, handler, backend
 
 
 def load_model(model_id: str) -> bool:
@@ -144,11 +204,13 @@ def load_model(model_id: str) -> bool:
         return False
 
 
-def _generate_transformers(prompt: str, temperature: float, max_tokens: int, model_id: str) -> str:
-    """Generate using cached transformers model."""
-    model, tokenizer = _ensure_loaded(model_id)
-    record_usage(MODEL_TYPE, model_id)
-
+def _generate_causal_lm(
+    model: object,
+    tokenizer: object,
+    prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
     messages = [{"role": "user", "content": prompt}]
     try:
         text = tokenizer.apply_chat_template(
@@ -167,6 +229,74 @@ def _generate_transformers(prompt: str, temperature: float, max_tokens: int, mod
     )
     out = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
     return out.strip()
+
+
+def _generate_gemma4(
+    model: object,
+    processor: object,
+    prompt: str,
+    temperature: float,
+    max_tokens: int,
+    thinking: bool,
+) -> str:
+    import torch
+
+    messages = [{"role": "user", "content": prompt}]
+    try:
+        text = processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=thinking,
+        )
+    except TypeError:
+        text = processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    except Exception:
+        text = prompt
+
+    inputs = processor(text=text, return_tensors="pt")
+    device = next(model.parameters()).device
+    inputs = {k: v.to(device) if hasattr(v, "to") else v for k, v in inputs.items()}
+    input_len = inputs["input_ids"].shape[-1]
+
+    tok = getattr(processor, "tokenizer", None)
+    pad_id = getattr(tok, "pad_token_id", None) if tok is not None else None
+    if pad_id is None and tok is not None:
+        pad_id = getattr(tok, "eos_token_id", None)
+
+    gen_kwargs: dict = {
+        "max_new_tokens": max_tokens,
+        "do_sample": temperature > 0,
+    }
+    if temperature > 0:
+        gen_kwargs["temperature"] = temperature
+    if pad_id is not None:
+        gen_kwargs["pad_token_id"] = pad_id
+
+    with torch.inference_mode():
+        outputs = model.generate(**inputs, **gen_kwargs)
+
+    new_tokens = outputs[0][input_len:]
+    if tok is None:
+        raise RuntimeError("Gemma 4 processor 缺少 tokenizer，无法解码输出")
+    out = tok.decode(new_tokens, skip_special_tokens=True)
+    return out.strip()
+
+
+def _generate_transformers(
+    prompt: str, temperature: float, max_tokens: int, model_id: str, thinking: bool
+) -> str:
+    """Generate using cached transformers model."""
+    model, handler, backend = _ensure_loaded(model_id)
+    record_usage(MODEL_TYPE, model_id)
+
+    if backend == "gemma4":
+        return _generate_gemma4(model, handler, prompt, temperature, max_tokens, thinking)
+    return _generate_causal_lm(model, handler, prompt, temperature, max_tokens)
 
 
 async def _try_ollama(prompt: str, temperature: float, max_tokens: int) -> str | None:
@@ -202,13 +332,26 @@ async def generate(
     temperature: float = 0.7,
     max_tokens: int = 512,
     model_id: str | None = None,
-) -> str:
-    """Generate text from prompt. 优先本地模型，无则 fallback Ollama."""
+    thinking: bool = False,
+) -> str | dict:
+    """Generate text from prompt. 优先本地模型，无则 fallback Ollama.
+
+    Args:
+        prompt: 输入提示
+        temperature: 温度参数
+        max_tokens: 最大生成 token 数
+        model_id: 模型 ID
+        thinking: 是否启用 thinking 模式（返回包含 thinking 的字典）
+
+    Returns:
+        如果 thinking=True，返回 {"text": str, "thinking": str | None}
+        否则返回 str（向后兼容）
+    """
     model_id = model_id or _get_first_installed_llm_id()
     if model_id is None:
         result = await _try_ollama(prompt, temperature, max_tokens)
         if result is not None:
-            return result
+            return _process_thinking(result, thinking)
         raise RuntimeError(
             "未找到可用的 LLM。请先在 Model Manager 下载模型（如 qwen2.5-0.5b-instruct），"
             "或安装 Ollama 并拉取：ollama pull qwen2.5:0.5b"
@@ -218,19 +361,48 @@ async def generate(
         raise ModelNotLoadedError(model_id)
 
     def _run():
-        return _generate_transformers(prompt, temperature, max_tokens, model_id)
+        return _generate_transformers(prompt, temperature, max_tokens, model_id, thinking)
 
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _run)
     if result:
-        return result
+        return _process_thinking(result, thinking)
 
     result = await _try_ollama(prompt, temperature, max_tokens)
     if result is not None:
-        return result
+        return _process_thinking(result, thinking)
     raise RuntimeError(
         "未找到可用的 LLM。请先在 Model Manager 下载模型，或安装 Ollama 并拉取模型。"
     )
+
+
+def _process_thinking(text: str, enabled: bool) -> str | dict:
+    """处理 thinking 内容。
+
+    如果启用了 thinking，从输出中提取 <think>...</think> 标签内容。
+    Qwen 模型的 thinking 输出格式：
+    <think>思考内容...</think>最终回答
+    """
+    if not enabled:
+        return text
+
+    # 尝试提取 thinking 内容
+    import re
+    think_pattern = r'<think>(.*?)</think>'
+    matches = re.findall(think_pattern, text, re.DOTALL)
+
+    if matches:
+        # 合并所有 thinking 块
+        thinking_content = "\n\n".join(matches).strip()
+        # 移除 thinking 标签，得到最终回答
+        final_answer = re.sub(think_pattern, '', text, flags=re.DOTALL).strip()
+        return {
+            "text": final_answer,
+            "thinking": thinking_content
+        }
+
+    # 没有找到 thinking 标签，返回原始文本
+    return {"text": text, "thinking": None}
 
 
 # Register idle unload callback

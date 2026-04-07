@@ -68,7 +68,8 @@ def _load_qwen_tts(model_id: str) -> object:
     except ImportError as e:
         raise RuntimeError(
             "未安装 qwen-tts，无法使用本地 Qwen3-TTS 模型。"
-            "请运行: uv sync --extra qwen-tts（若遇依赖冲突，建议使用 Python 3.10 或 3.11）"
+            "请 pip install qwen-tts（该包固定依赖 transformers 4.57，与主工程 Gemma4 所需的 transformers>=5.5 冲突，"
+            "建议使用独立虚拟环境安装）"
         ) from e
 
     model_path = _get_tts_path(model_id)
